@@ -46,6 +46,7 @@ import {
   Menu,
   Plus,
   ReceiptText,
+  RefreshCw,
   Search,
   Settings,
   ShieldCheck,
@@ -61,6 +62,7 @@ import "./App.css";
 import { AppDataProvider, useAppData } from "./hooks/useAppData";
 import { analyzeImageFiles, parseCsvFile } from "./services/importService";
 import { aiService } from "./services/aiService";
+import { fetchFundQuotes, type FundQuote } from "./services/marketData";
 import type {
   AssetType,
   Category,
@@ -134,6 +136,23 @@ function ProtectedRoute() {
   return <Outlet />;
 }
 
+function TechBackdrop() {
+  return (
+    <div className="tech-backdrop" aria-hidden="true">
+      <div className="tech-grid" />
+      <div className="tech-stream tech-stream-a" />
+      <div className="tech-stream tech-stream-b" />
+      <div className="tech-network">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
+    </div>
+  );
+}
+
 function AppLayout() {
   const { user, signOut, data } = useAppData();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -141,7 +160,9 @@ function AppLayout() {
   const summary = data ? calculateDashboard(data) : null;
 
   return (
-    <div className="app-shell">
+    <>
+      <TechBackdrop />
+      <div className="app-shell">
       <aside className={`sidebar ${menuOpen ? "is-open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">CF</div>
@@ -176,7 +197,10 @@ function AppLayout() {
             <Menu size={20} />
           </button>
           <div>
-            <span className="eyebrow">Carteira segura, sem conexão bancária obrigatória</span>
+            <span className="eyebrow tech-status">
+              <ShieldCheck size={15} />
+              Carteira segura, sem conexão bancária obrigatória
+            </span>
             <h1>Cofrinho App</h1>
           </div>
           <div className="topbar-actions">
@@ -203,7 +227,8 @@ function AppLayout() {
       </nav>
 
       {menuOpen ? <button className="scrim" type="button" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /> : null}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -316,13 +341,42 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
 }
 
 function DashboardPage() {
-  const { data } = useRequiredData();
+  const { data, updateInvestment } = useRequiredData();
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [quotes, setQuotes] = useState<Record<string, FundQuote>>({});
+  const [quotesLoading, setQuotesLoading] = useState(false);
+  const [quotesError, setQuotesError] = useState("");
   const summary = calculateDashboard(data, month);
   const categories = groupExpensesByCategory(data.transactions, data.categories, month);
   const cashflow = getMonthlyCashflow(data.transactions, 6);
   const allocation = getInvestmentAllocation(data.investments);
+  const fiiAssets = data.investments.filter((asset) => asset.assetType === "fii");
   const latest = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+
+  async function refreshFiiQuotes() {
+    if (!fiiAssets.length) return;
+    setQuotesLoading(true);
+    setQuotesError("");
+    try {
+      const freshQuotes = await fetchFundQuotes(fiiAssets);
+      const nextQuotes = Object.fromEntries(freshQuotes.map((quote) => [quote.ticker, quote]));
+      setQuotes((current) => ({ ...current, ...nextQuotes }));
+      freshQuotes.forEach((quote) => {
+        const asset = fiiAssets.find((item) => normalizeTicker(item.ticker) === quote.ticker);
+        if (!asset || quote.price <= 0) return;
+        updateInvestment({
+          ...asset,
+          currentPrice: quote.price,
+          currentValue: asset.quantity * quote.price,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+    } catch {
+      setQuotesError("Não consegui atualizar as cotas online agora. Mantive os valores salvos.");
+    } finally {
+      setQuotesLoading(false);
+    }
+  }
 
   return (
     <Page title="Painel Financeiro" action={<input className="month-input" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />}>
@@ -386,6 +440,19 @@ function DashboardPage() {
         <Panel title="Distribuição dos investimentos">
           {allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Carteira vazia" text="Cadastre seus FIIs, CDBs, ações ou crypto para acompanhar o patrimônio." />}
         </Panel>
+        <div className="dashboard-wide">
+          <Panel
+            title="Radar de FIIs"
+            action={(
+              <button className="secondary-button" type="button" onClick={() => void refreshFiiQuotes()} disabled={quotesLoading || !fiiAssets.length}>
+                {quotesLoading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+                Atualizar cotas
+              </button>
+            )}
+          >
+            <FiiRadarPanel assets={fiiAssets} quotes={quotes} loading={quotesLoading} error={quotesError} />
+          </Panel>
+        </div>
       </div>
 
       <div className="two-column">
@@ -610,37 +677,46 @@ function CategoriesPage() {
 
   return (
     <Page title="Categorias" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyCategory())}><Plus size={17} />Nova categoria</button>}>
-      <div className="category-grid">
+      <Panel>
+        <div className="category-list">
         {usage.map((category) => (
-          <article className="category-card" key={category.id}>
-            <div className="category-header">
+          <article className="category-list-row" key={category.id}>
+            <div className="category-main">
               <Pill color={category.color}>{category.icon}</Pill>
               <div>
-                <h3>{category.name}</h3>
+                <strong>{category.name}</strong>
                 <span>{categoryTypeLabel(category.type)} · {category.count} transação(ões)</span>
               </div>
             </div>
-            <div className="category-budget">
-              <span>Gasto acumulado</span>
+            <div className="category-metric">
+              <span>Gasto</span>
               <strong>{formatCurrency(category.spent)}</strong>
-              {category.monthlyBudget ? <small>Limite: {formatCurrency(category.monthlyBudget)}</small> : <small>Sem limite mensal</small>}
+            </div>
+            <div className="category-metric">
+              <span>Limite</span>
+              <strong>{category.monthlyBudget ? formatCurrency(category.monthlyBudget) : "Sem limite"}</strong>
+            </div>
+            <div className="category-progress" aria-hidden="true">
+              <span style={{ width: `${category.monthlyBudget ? Math.min((category.spent / category.monthlyBudget) * 100, 100) : 0}%`, background: category.color }} />
             </div>
             <div className="row-actions">
-              <button className="secondary-button" type="button" onClick={() => setEditing(category)}><Edit3 size={16} />Editar</button>
+              <button className="icon-button" type="button" onClick={() => setEditing(category)} aria-label={`Editar ${category.name}`}><Edit3 size={16} /></button>
               <button
-                className="ghost-button"
+                className="icon-button danger-icon"
                 type="button"
+                aria-label={`Excluir ${category.name}`}
                 onClick={() => {
                   const message = category.count ? "Categoria em uso. As transações serão realocadas para Sem categoria. Continuar?" : "Excluir categoria?";
                   if (window.confirm(message)) deleteCategory(category.id);
                 }}
               >
-                <Trash2 size={16} />Excluir
+                <Trash2 size={16} />
               </button>
             </div>
           </article>
         ))}
-      </div>
+        </div>
+      </Panel>
       <Modal title={editing?.id ? "Editar categoria" : "Nova categoria"} open={Boolean(editing)} onClose={() => setEditing(null)}>
         {editing ? <CategoryForm category={editing} onSave={save} /> : null}
       </Modal>
@@ -1266,6 +1342,103 @@ function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset
   );
 }
 
+function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentAsset[]; quotes: Record<string, FundQuote>; loading: boolean; error: string }) {
+  if (!assets.length) return <EmptyState title="Nenhum FII cadastrado" text="Cadastre FIIs para comparar preço médio, cota atual, valorização e proventos." />;
+
+  const rows = assets.map((asset) => {
+    const quote = quotes[normalizeTicker(asset.ticker)];
+    const currentPrice = quote?.price ?? asset.currentPrice;
+    const currentValue = asset.quantity * currentPrice;
+    const quoteReturn = asset.averagePrice > 0 ? (currentPrice - asset.averagePrice) / asset.averagePrice : 0;
+    const totalReturn = asset.investedValue > 0 ? (currentValue + asset.dividends - asset.investedValue) / asset.investedValue : 0;
+    const dividendReturn = asset.investedValue > 0 ? asset.dividends / asset.investedValue : 0;
+
+    return {
+      asset,
+      quote,
+      ticker: normalizeTicker(asset.ticker),
+      currentPrice,
+      currentValue,
+      quoteReturn,
+      totalReturn,
+      dividendReturn,
+    };
+  });
+
+  const totalInvested = rows.reduce((sum, row) => sum + row.asset.investedValue, 0);
+  const totalCurrent = rows.reduce((sum, row) => sum + row.currentValue, 0);
+  const totalDividends = rows.reduce((sum, row) => sum + row.asset.dividends, 0);
+  const totalReturn = totalInvested > 0 ? (totalCurrent + totalDividends - totalInvested) / totalInvested : 0;
+  const source = rows.find((row) => row.quote)?.quote;
+  const chartData = rows.map((row) => ({
+    ticker: row.ticker,
+    valorizacao: row.quoteReturn,
+    rendimento: row.dividendReturn,
+    total: row.totalReturn,
+  }));
+
+  return (
+    <div className="fii-radar">
+      <div className="fii-radar-summary">
+        <div>
+          <span>Valor atualizado</span>
+          <strong>{formatCurrency(totalCurrent)}</strong>
+        </div>
+        <div>
+          <span>Proventos</span>
+          <strong>{formatCurrency(totalDividends)}</strong>
+        </div>
+        <div>
+          <span>Retorno total</span>
+          <strong className={totalReturn >= 0 ? "amount-positive" : "amount-negative"}>{formatPercent(totalReturn)}</strong>
+        </div>
+      </div>
+      <div className="fii-radar-chart">
+        <ChartBox>
+          <ResponsiveContainer>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="ticker" />
+              <YAxis tickFormatter={(value) => formatPercent(Number(value))} />
+              <Tooltip formatter={(value, name) => [formatPercent(Number(value)), name === "valorizacao" ? "Valorização da cota" : name === "rendimento" ? "Rendimento" : "Total"]} />
+              <Legend />
+              <Bar dataKey="valorizacao" fill="#38bdf8" name="Valorização" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="rendimento" fill="#a78bfa" name="Rendimento" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="total" fill="#5eead4" name="Total" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartBox>
+      </div>
+      <div className="fii-radar-list">
+        {rows.map((row) => (
+          <div className="fii-row" key={row.asset.id}>
+            <div>
+              <strong>{row.ticker}</strong>
+              <span>{row.asset.quantity} cotas · PM {formatCurrency(row.asset.averagePrice)}</span>
+            </div>
+            <div>
+              <span>Cota atual</span>
+              <strong>{formatCurrency(row.currentPrice)}</strong>
+            </div>
+            <div>
+              <span>Cota</span>
+              <strong className={row.quoteReturn >= 0 ? "amount-positive" : "amount-negative"}>{formatPercent(row.quoteReturn)}</strong>
+            </div>
+            <div>
+              <span>Total</span>
+              <strong className={row.totalReturn >= 0 ? "amount-positive" : "amount-negative"}>{formatPercent(row.totalReturn)}</strong>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="fii-radar-status">
+        <span>{loading ? "Buscando cotas..." : source ? `Fonte: ${source.source} · ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(source.fetchedAt))}` : "Usando valores salvos na carteira."}</span>
+        {error ? <strong>{error}</strong> : null}
+      </div>
+    </div>
+  );
+}
+
 function FiiQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
   const [drafts, setDrafts] = useState<Record<string, number>>(() => Object.fromEntries(assets.map((asset) => [asset.id, asset.currentPrice])));
   return (
@@ -1341,6 +1514,7 @@ function Page({ title, subtitle, action, children }: { title: string; subtitle?:
 function Panel({ title, action, children }: { title?: string; action?: ReactNode; children?: ReactNode }) {
   return (
     <section className="panel">
+      <span className="panel-scan" aria-hidden="true" />
       {title || action ? (
         <div className="panel-header">
           {title ? <h3>{title}</h3> : <span />}
@@ -1374,6 +1548,14 @@ function StatCard({ icon: Icon, label, value, tone }: { icon: React.ComponentTyp
       <div className="stat-icon"><Icon size={20} /></div>
       <span>{label}</span>
       <strong>{value}</strong>
+      <div className="stat-sparkline" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+      </div>
     </article>
   );
 }
@@ -1456,6 +1638,10 @@ function createEmptyInvestment(): InvestmentAsset {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function normalizeTicker(ticker: string) {
+  return ticker.trim().toUpperCase().replace(/\.SA$/, "");
 }
 
 function createEmptyGoal(): Goal {

@@ -38,6 +38,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_AI_ENDPOINT: ${{ secrets.VITE_AI_ENDPOINT }}
+          VITE_QUOTES_ENDPOINT: ${{ secrets.VITE_QUOTES_ENDPOINT }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

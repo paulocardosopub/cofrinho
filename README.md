@@ -11,7 +11,7 @@ Cofrinho App é um app financeiro web/mobile para organizar despesas, receitas, 
 - Importação de CSV real e prévia inteligente para imagens/PDF.
 - CRUD de categorias com orçamento mensal.
 - Carteira de investimentos com FIIs, CDB, renda fixa, ações, crypto e outros.
-- Atualização rápida de FIIs.
+- Radar de FIIs com atualização de cotas, comparação de preço médio, valorização, proventos e retorno total.
 - Guru financeiro com chat, insights, análise e metas.
 - Relatórios visuais.
 - Configurações, backup JSON e sincronização Supabase.
@@ -45,11 +45,13 @@ Copie `.env.example` para `.env.local`:
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 VITE_AI_ENDPOINT=
+VITE_QUOTES_ENDPOINT=
 ```
 
 - `VITE_SUPABASE_URL`: URL do projeto Supabase.
 - `VITE_SUPABASE_ANON_KEY`: chave anon pública do Supabase.
 - `VITE_AI_ENDPOINT`: endpoint seguro opcional para IA/OCR. Não coloque chave OpenAI no front-end.
+- `VITE_QUOTES_ENDPOINT`: endpoint opcional para cotações. Se vazio, o app tenta usar `VITE_SUPABASE_URL/functions/v1/fund-quotes`.
 
 Sem Supabase configurado, o app usa armazenamento local do navegador.
 
@@ -68,6 +70,7 @@ Aplicar via CLI:
 ```bash
 supabase link --project-ref SEU_PROJECT_REF
 supabase db push
+supabase functions deploy fund-quotes
 ```
 
 No painel do Supabase, habilite Email/Password em Authentication. Depois configure as variáveis no ambiente do deploy.
