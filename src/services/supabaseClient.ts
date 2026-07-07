@@ -7,6 +7,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undef
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase = isSupabaseConfigured ? createClient(supabaseUrl!, supabaseAnonKey!) : null;
+const REMOTE_DATA_TABLE = "cofrinho_user_app_data";
 
 function toAppUser(id: string, email: string, name?: string): User {
   return {
@@ -71,14 +72,14 @@ export async function updateRemotePassword(password: string) {
 
 export async function loadRemoteUserData(userId: string) {
   if (!supabase) return null;
-  const { data, error } = await supabase.from("user_app_data").select("payload").eq("user_id", userId).maybeSingle();
+  const { data, error } = await supabase.from(REMOTE_DATA_TABLE).select("payload").eq("user_id", userId).maybeSingle();
   if (error) throw error;
   return (data?.payload as UserData | undefined) ?? null;
 }
 
 export async function saveRemoteUserData(userId: string, payload: UserData) {
   if (!supabase) return null;
-  const { error } = await supabase.from("user_app_data").upsert({
+  const { error } = await supabase.from(REMOTE_DATA_TABLE).upsert({
     user_id: userId,
     payload,
     updated_at: new Date().toISOString(),

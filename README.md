@@ -27,7 +27,7 @@ O app abre em `http://localhost:5173`.
 
 Conta demo local:
 
-- E-mail: `paulo@cardosofinance.local`
+- E-mail: `paulo@cofrinho.local`
 - Senha: `demo123`
 
 ## Build
@@ -61,7 +61,7 @@ O schema inicial está em:
 supabase/migrations/20260707000000_initial_schema.sql
 ```
 
-Ele cria a tabela `public.user_app_data` com `payload jsonb` e políticas RLS para que cada usuário autenticado leia e grave apenas os próprios dados.
+Ele cria a tabela `public.cofrinho_user_app_data` com `payload jsonb` e políticas RLS para que cada usuário autenticado leia e grave apenas os próprios dados.
 
 Aplicar via CLI:
 

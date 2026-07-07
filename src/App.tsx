@@ -210,7 +210,7 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
   const { signIn, signInDemo, signUp, forgotPassword, changePassword, user, supabaseReady } = useAppData();
   const navigate = useNavigate();
   const [name, setName] = useState("Paulo Cardoso");
-  const [email, setEmail] = useState("paulo@cardosofinance.local");
+  const [email, setEmail] = useState("paulo@cofrinho.local");
   const [password, setPassword] = useState("demo123");
   const [confirm, setConfirm] = useState("demo123");
   const [message, setMessage] = useState("");

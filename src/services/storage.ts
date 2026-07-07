@@ -6,9 +6,18 @@ import {
 } from "../data/defaults";
 import type { Category, Transaction, User, UserData } from "../types";
 
-const USERS_KEY = "cardoso_finance_users";
-const SESSION_KEY = "cardoso_finance_session";
-const DATA_PREFIX = "cardoso_finance_data";
+const USERS_KEY = "cofrinho_users";
+const SESSION_KEY = "cofrinho_session";
+const DATA_PREFIX = "cofrinho_data";
+const RESET_EMAIL_KEY = "cofrinho_reset_email";
+const LEGACY_USERS_KEY = "cardoso_finance_users";
+const LEGACY_SESSION_KEY = "cardoso_finance_session";
+const LEGACY_DATA_PREFIX = "cardoso_finance_data";
+const LEGACY_RESET_EMAIL_KEY = "cardoso_finance_reset_email";
+const DEMO_EMAIL = "paulo@cofrinho.local";
+const LEGACY_DEMO_EMAIL = "paulo@cardosofinance.local";
+
+let migratedLegacyStorage = false;
 
 function safeJsonParse<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
@@ -34,7 +43,44 @@ export function hashCredential(email: string, password: string) {
   return `local-${Math.abs(hash)}`;
 }
 
+function migrateLegacyStorage() {
+  if (migratedLegacyStorage) return;
+  migratedLegacyStorage = true;
+
+  const legacyUsers = safeJsonParse<User[]>(localStorage.getItem(LEGACY_USERS_KEY), []);
+  if (legacyUsers.length && !localStorage.getItem(USERS_KEY)) {
+    saveUsers(
+      legacyUsers.map((user) =>
+        user.id === DEMO_USER_ID || user.email === LEGACY_DEMO_EMAIL
+          ? { ...user, email: DEMO_EMAIL, passwordHash: hashCredential(DEMO_EMAIL, "demo123") }
+          : user,
+      ),
+    );
+  }
+
+  const legacySession = localStorage.getItem(LEGACY_SESSION_KEY);
+  if (legacySession && !localStorage.getItem(SESSION_KEY)) {
+    localStorage.setItem(SESSION_KEY, legacySession);
+  }
+
+  const legacyResetEmail = localStorage.getItem(LEGACY_RESET_EMAIL_KEY);
+  if (legacyResetEmail && !localStorage.getItem(RESET_EMAIL_KEY)) {
+    localStorage.setItem(RESET_EMAIL_KEY, legacyResetEmail === LEGACY_DEMO_EMAIL ? DEMO_EMAIL : legacyResetEmail);
+  }
+
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(`${LEGACY_DATA_PREFIX}_`)) continue;
+    const newKey = `${DATA_PREFIX}_${key.slice(`${LEGACY_DATA_PREFIX}_`.length)}`;
+    if (!localStorage.getItem(newKey)) {
+      const value = localStorage.getItem(key);
+      if (value) localStorage.setItem(newKey, value);
+    }
+  }
+}
+
 export function getUsers() {
+  migrateLegacyStorage();
   ensureDemoUser();
   return safeJsonParse<User[]>(localStorage.getItem(USERS_KEY), []);
 }
@@ -44,14 +90,15 @@ function saveUsers(users: User[]) {
 }
 
 export function ensureDemoUser() {
+  migrateLegacyStorage();
   const existing = safeJsonParse<User[]>(localStorage.getItem(USERS_KEY), []);
   if (existing.some((user) => user.id === DEMO_USER_ID)) return;
 
   const demoUser: User = {
     id: DEMO_USER_ID,
     name: "Paulo Cardoso",
-    email: "paulo@cardosofinance.local",
-    passwordHash: hashCredential("paulo@cardosofinance.local", "demo123"),
+    email: DEMO_EMAIL,
+    passwordHash: hashCredential(DEMO_EMAIL, "demo123"),
     createdAt: new Date().toISOString(),
   };
 
@@ -109,7 +156,7 @@ export function updateUser(user: User) {
 export function requestPasswordReset(email: string) {
   const exists = getUsers().some((user) => user.email.toLowerCase() === email.trim().toLowerCase());
   if (!exists) return false;
-  localStorage.setItem("cardoso_finance_reset_email", email.trim().toLowerCase());
+  localStorage.setItem(RESET_EMAIL_KEY, email.trim().toLowerCase());
   return true;
 }
 
