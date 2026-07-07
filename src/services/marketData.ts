@@ -1,4 +1,5 @@
 import type { InvestmentAsset } from "../types";
+import { supabaseAnonKey, supabaseUrl } from "./supabaseClient";
 
 export interface QuotePoint {
   label: string;
@@ -34,8 +35,6 @@ interface YahooChartResponse {
   };
 }
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const inferredSupabaseEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/fund-quotes` : "";
 const configuredEndpoint = import.meta.env.VITE_QUOTES_ENDPOINT || import.meta.env.VITE_MARKET_DATA_ENDPOINT || inferredSupabaseEndpoint;
 

@@ -1,8 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import type { User, UserData } from "../types";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const defaultSupabaseUrl = "https://obqjjpbydhgfuqfgdjyh.supabase.co";
+const defaultSupabasePublishableKey = "sb_publishable_WES5RUU00asnvpEcx4oMhQ_lERRu9l8";
+
+export const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || defaultSupabaseUrl;
+export const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || defaultSupabasePublishableKey;
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 

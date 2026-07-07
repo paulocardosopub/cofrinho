@@ -282,62 +282,89 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
   }[mode];
 
   return (
-    <main className="auth-page">
-      <section className="auth-panel">
-        <div className="brand auth-brand">
-          <div className="brand-mark">CF</div>
-          <div>
-            <strong>Cofrinho App</strong>
-            <span>gestão financeira com IA e importação por print</span>
+    <>
+      <TechBackdrop />
+      <main className="auth-page">
+        <section className="auth-panel">
+          <div className="auth-showcase">
+            <div className="brand auth-brand">
+              <div className="brand-mark">CF</div>
+              <div>
+                <strong>Cofrinho App</strong>
+                <span>controle mobile com IA e prints</span>
+              </div>
+            </div>
+            <div className="auth-copy">
+              <span className="eyebrow tech-status">
+                <ShieldCheck size={15} />
+                Sem conexão bancária obrigatória
+              </span>
+              <h1>{title}</h1>
+              <p>Entre para acompanhar carteira, FIIs, metas e receitas com atualização por print e cotações online.</p>
+            </div>
+            <div className="auth-mini-grid" aria-hidden="true">
+              <div>
+                <WalletCards size={18} />
+                <span>Saldo</span>
+                <strong>R$ 6,2k</strong>
+              </div>
+              <div>
+                <Landmark size={18} />
+                <span>Investido</span>
+                <strong>R$ 41,6k</strong>
+              </div>
+              <div>
+                <Sparkles size={18} />
+                <span>IA por print</span>
+                <strong>Pronta</strong>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="auth-copy">
-          <h1>{title}</h1>
-          <p>
-            Organize despesas, investimentos, FIIs e metas sem entregar senha de banco. Importe CSV ou prints e revise tudo antes de salvar.
-          </p>
-        </div>
-        <form className="form-grid" onSubmit={submit}>
-          {mode === "register" ? (
-            <label>
-              Nome
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Paulo Cardoso" />
-            </label>
-          ) : null}
-          <label>
-            E-mail
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="voce@email.com" />
-          </label>
-          {mode !== "forgot" ? (
-            <label>
-              Senha
-              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mínimo 6 caracteres" />
-            </label>
-          ) : null}
-          {mode === "register" ? (
-            <label>
-              Confirmar senha
-              <input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
-            </label>
-          ) : null}
-          {message ? <div className="inline-alert">{message}</div> : null}
-          <button className="primary-button" type="submit">
-            <ShieldCheck size={18} />
-            {mode === "login" ? "Entrar" : mode === "register" ? "Criar conta" : mode === "forgot" ? "Enviar instruções" : "Salvar senha"}
-          </button>
-          {mode === "login" ? (
-            <button className="secondary-button" type="button" onClick={signInDemo}>
-              <Sparkles size={18} />
-              Entrar no modo demo
-            </button>
-          ) : null}
-        </form>
-        <div className="auth-links">
-          {mode !== "login" ? <NavLink to="/login">Voltar ao login</NavLink> : <NavLink to="/forgot-password">Esqueci minha senha</NavLink>}
-          {mode !== "register" ? <NavLink to="/register">Criar conta</NavLink> : null}
-        </div>
-      </section>
-    </main>
+
+          <div className="auth-form-card">
+            <form className="form-grid" onSubmit={submit}>
+              {mode === "register" ? (
+                <label>
+                  Nome
+                  <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Paulo Cardoso" />
+                </label>
+              ) : null}
+              <label>
+                E-mail
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="voce@email.com" />
+              </label>
+              {mode !== "forgot" ? (
+                <label>
+                  Senha
+                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mínimo 6 caracteres" />
+                </label>
+              ) : null}
+              {mode === "register" ? (
+                <label>
+                  Confirmar senha
+                  <input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                </label>
+              ) : null}
+              {message ? <div className="inline-alert span-2">{message}</div> : null}
+              <button className="primary-button" type="submit">
+                <ShieldCheck size={18} />
+                {mode === "login" ? "Entrar" : mode === "register" ? "Criar conta" : mode === "forgot" ? "Enviar instruções" : "Salvar senha"}
+              </button>
+              {mode === "login" ? (
+                <button className="secondary-button" type="button" onClick={signInDemo}>
+                  <Sparkles size={18} />
+                  Modo demo
+                </button>
+              ) : null}
+            </form>
+            <div className="auth-links">
+              {mode !== "login" ? <NavLink to="/login">Voltar ao login</NavLink> : <NavLink to="/forgot-password">Esqueci minha senha</NavLink>}
+              {mode !== "register" ? <NavLink to="/register">Criar conta</NavLink> : null}
+            </div>
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
 
