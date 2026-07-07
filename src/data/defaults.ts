@@ -45,7 +45,8 @@ export const defaultCategories: Category[] = [
 
 export const defaultSettings: UserSettings = {
   currency: "BRL",
-  theme: "light",
+  theme: "dark",
+  visualVersion: 2,
   dashboardPeriod: "month",
   notifications: true,
   aiAssistantName: "Guru Cardoso",

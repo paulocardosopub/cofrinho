@@ -84,7 +84,7 @@ import {
 } from "./utils/finance";
 import { formatCurrency, formatDate, formatPercent, toInputDate } from "./utils/format";
 
-const chartColors = ["#0f766e", "#2563eb", "#f97316", "#9333ea", "#dc2626", "#0891b2", "#65a30d", "#ca8a04"];
+const chartColors = ["#14b8a6", "#38bdf8", "#a78bfa", "#fbbf24", "#fb7185", "#34d399", "#818cf8", "#f97316"];
 
 const navigation = [
   { to: "/", label: "Painel", icon: LayoutDashboard },
@@ -339,13 +339,23 @@ function DashboardPage() {
           <ChartBox>
             <ResponsiveContainer>
               <BarChart data={cashflow}>
+                <defs>
+                  <linearGradient id="incomeBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#5eead4" stopOpacity={0.95} />
+                    <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.45} />
+                  </linearGradient>
+                  <linearGradient id="expenseBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#fb7185" stopOpacity={0.95} />
+                    <stop offset="100%" stopColor="#f97316" stopOpacity={0.42} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" />
                 <YAxis tickFormatter={(value) => `R$${Number(value) / 1000}k`} />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
                 <Legend />
-                <Bar dataKey="receitas" fill="#0f766e" name="Receitas" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="despesas" fill="#dc2626" name="Despesas" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="receitas" fill="url(#incomeBar)" name="Receitas" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="despesas" fill="url(#expenseBar)" name="Despesas" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartBox>
@@ -354,11 +364,17 @@ function DashboardPage() {
           <ChartBox>
             <ResponsiveContainer>
               <AreaChart data={cashflow}>
+                <defs>
+                  <linearGradient id="balanceArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.55} />
+                    <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.04} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" />
                 <YAxis tickFormatter={(value) => `R$${Number(value) / 1000}k`} />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Area type="monotone" dataKey="acumulado" stroke="#2563eb" fill="#bfdbfe" name="Saldo" />
+                <Area type="monotone" dataKey="acumulado" stroke="#38bdf8" strokeWidth={3} fill="url(#balanceArea)" name="Saldo" />
               </AreaChart>
             </ResponsiveContainer>
           </ChartBox>
@@ -670,7 +686,7 @@ function InvestmentsPage() {
                   <XAxis dataKey="label" />
                   <YAxis tickFormatter={(value) => `R$${Number(value) / 1000}k`} />
                   <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                  <Line dataKey="value" stroke="#0f766e" strokeWidth={3} name="Valor" />
+                  <Line dataKey="value" stroke="#5eead4" strokeWidth={3} name="Valor" dot={{ r: 5, fill: "#38bdf8" }} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartBox>
@@ -690,7 +706,7 @@ function InvestmentsPage() {
                   <XAxis dataKey="month" />
                   <YAxis tickFormatter={(value) => `R$${Number(value)}`} />
                   <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                  <Bar dataKey="value" fill="#9333ea" name="Proventos" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="value" fill="#a78bfa" name="Proventos" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartBox>
@@ -786,8 +802,8 @@ function GuruPage() {
                   <XAxis dataKey="label" />
                   <YAxis />
                   <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                  <Bar dataKey="receitas" fill="#0f766e" />
-                  <Bar dataKey="despesas" fill="#dc2626" />
+                  <Bar dataKey="receitas" fill="#14b8a6" />
+                  <Bar dataKey="despesas" fill="#fb7185" />
                 </BarChart>
               </ResponsiveContainer>
             </ChartBox>
@@ -869,8 +885,8 @@ function ReportsPage() {
                 <XAxis dataKey="label" />
                 <YAxis />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Area dataKey="receitas" fill="#bbf7d0" stroke="#0f766e" name="Receitas" />
-                <Area dataKey="despesas" fill="#fecaca" stroke="#dc2626" name="Despesas" />
+                <Area dataKey="receitas" fill="#0f766e55" stroke="#5eead4" name="Receitas" />
+                <Area dataKey="despesas" fill="#fb718555" stroke="#fb7185" name="Despesas" />
               </AreaChart>
             </ResponsiveContainer>
           </ChartBox>
@@ -885,7 +901,7 @@ function ReportsPage() {
                 <XAxis dataKey="month" />
                 <YAxis />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Bar dataKey="value" fill="#9333ea" name="Proventos" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="value" fill="#a78bfa" name="Proventos" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartBox>
@@ -1295,7 +1311,7 @@ function PieChartBlock({ data }: { data: Array<{ name: string; value: number }> 
     <ChartBox>
       <ResponsiveContainer>
         <PieChart>
-          <Pie data={data} dataKey="value" nameKey="name" innerRadius={54} outerRadius={86} paddingAngle={2}>
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius={54} outerRadius={88} paddingAngle={3} stroke="rgba(7, 11, 18, 0.85)" strokeWidth={3}>
             {data.map((entry, index) => <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />)}
           </Pie>
           <Tooltip formatter={(value) => formatCurrency(Number(value))} />

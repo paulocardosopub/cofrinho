@@ -184,6 +184,17 @@ export function normalizeData(data: UserData): UserData {
     tags: transaction.tags ?? [],
   }));
 
+  const defaultData = createDefaultUserData();
+  const migratedSettings =
+    data.settings?.visualVersion === 2
+      ? data.settings
+      : {
+          ...defaultData.settings,
+          ...data.settings,
+          theme: "dark" as const,
+          visualVersion: 2,
+        };
+
   return {
     accounts,
     categories: normalizedCategories,
@@ -195,6 +206,6 @@ export function normalizeData(data: UserData): UserData {
     importBatches: data.importBatches ?? [],
     insights: data.insights ?? [],
     chat: data.chat ?? [],
-    settings: data.settings ?? createDefaultUserData().settings,
+    settings: migratedSettings,
   };
 }

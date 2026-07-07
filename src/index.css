@@ -1,18 +1,21 @@
 :root {
-  --bg: #f6f7fb;
-  --surface: #ffffff;
-  --surface-soft: #eef7f4;
-  --text: #1f2937;
-  --muted: #667085;
-  --border: #d9e1e8;
-  --brand: #0f766e;
-  --brand-strong: #115e59;
-  --blue: #2563eb;
-  --red: #dc2626;
-  --purple: #7c3aed;
-  --amber: #ca8a04;
-  --green: #15803d;
-  --shadow: 0 16px 38px rgba(15, 23, 42, 0.08);
+  --bg: #070b12;
+  --bg-2: #0a111d;
+  --surface: rgba(14, 22, 35, 0.88);
+  --surface-strong: #111c2e;
+  --surface-soft: rgba(24, 39, 61, 0.82);
+  --text: #edf6ff;
+  --muted: #9fb1c8;
+  --border: rgba(132, 166, 205, 0.22);
+  --brand: #14b8a6;
+  --brand-strong: #5eead4;
+  --blue: #38bdf8;
+  --red: #fb7185;
+  --purple: #a78bfa;
+  --amber: #fbbf24;
+  --green: #34d399;
+  --shadow: 0 22px 60px rgba(0, 0, 0, 0.36);
+  --glow: 0 0 0 1px rgba(94, 234, 212, 0.18), 0 0 34px rgba(20, 184, 166, 0.12);
   --radius: 8px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -25,25 +28,48 @@
   letter-spacing: 0;
 }
 
-:root[data-theme="dark"] {
-  --bg: #111827;
-  --surface: #182231;
-  --surface-soft: #12312f;
-  --text: #f8fafc;
-  --muted: #aeb9c7;
-  --border: #344256;
-  --shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+:root[data-theme="light"] {
+  --bg: #edf3f8;
+  --bg-2: #f8fbff;
+  --surface: rgba(255, 255, 255, 0.92);
+  --surface-strong: #ffffff;
+  --surface-soft: #e8f5f3;
+  --text: #172033;
+  --muted: #5f6f86;
+  --border: rgba(77, 104, 136, 0.2);
+  --brand: #0f766e;
+  --brand-strong: #115e59;
+  --blue: #2563eb;
+  --red: #dc2626;
+  --purple: #7c3aed;
+  --amber: #ca8a04;
+  --green: #15803d;
+  --shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
+  --glow: 0 0 0 1px rgba(15, 118, 110, 0.11), 0 18px 42px rgba(15, 23, 42, 0.08);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    linear-gradient(135deg, var(--bg) 0%, var(--bg-2) 48%, #10101a 100%);
+  background-size: 38px 38px, 38px 38px, auto;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--bg);
+  background:
+    linear-gradient(120deg, rgba(20, 184, 166, 0.12), transparent 24%),
+    linear-gradient(240deg, rgba(167, 139, 250, 0.12), transparent 28%),
+    transparent;
 }
 
 button,

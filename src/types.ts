@@ -134,6 +134,7 @@ export interface ChatMessage {
 export interface UserSettings {
   currency: "BRL";
   theme: AppTheme;
+  visualVersion?: number;
   dashboardPeriod: "month" | "quarter" | "year";
   notifications: boolean;
   aiAssistantName: string;
