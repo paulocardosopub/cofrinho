@@ -1,0 +1,200 @@
+import {
+  createDefaultUserData,
+  DEFAULT_ACCOUNT_ID,
+  DEMO_USER_ID,
+  UNCATEGORIZED_ID,
+} from "../data/defaults";
+import type { Category, Transaction, User, UserData } from "../types";
+
+const USERS_KEY = "cardoso_finance_users";
+const SESSION_KEY = "cardoso_finance_session";
+const DATA_PREFIX = "cardoso_finance_data";
+
+function safeJsonParse<T>(value: string | null, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export function makeId(prefix: string) {
+  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${random}`;
+}
+
+export function hashCredential(email: string, password: string) {
+  const input = `${email.trim().toLowerCase()}:${password}`;
+  let hash = 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash << 5) - hash + input.charCodeAt(index);
+    hash |= 0;
+  }
+  return `local-${Math.abs(hash)}`;
+}
+
+export function getUsers() {
+  ensureDemoUser();
+  return safeJsonParse<User[]>(localStorage.getItem(USERS_KEY), []);
+}
+
+function saveUsers(users: User[]) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+export function ensureDemoUser() {
+  const existing = safeJsonParse<User[]>(localStorage.getItem(USERS_KEY), []);
+  if (existing.some((user) => user.id === DEMO_USER_ID)) return;
+
+  const demoUser: User = {
+    id: DEMO_USER_ID,
+    name: "Paulo Cardoso",
+    email: "paulo@cardosofinance.local",
+    passwordHash: hashCredential("paulo@cardosofinance.local", "demo123"),
+    createdAt: new Date().toISOString(),
+  };
+
+  saveUsers([demoUser, ...existing]);
+  if (!localStorage.getItem(dataKey(DEMO_USER_ID))) {
+    saveUserData(DEMO_USER_ID, createDefaultUserData());
+  }
+}
+
+export function login(email: string, password: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = getUsers().find((item) => item.email.toLowerCase() === normalizedEmail);
+  if (!user || user.passwordHash !== hashCredential(normalizedEmail, password)) {
+    throw new Error("E-mail ou senha inválidos.");
+  }
+  setSession(user.id);
+  return user;
+}
+
+export function loginDemo() {
+  ensureDemoUser();
+  setSession(DEMO_USER_ID);
+  return getUsers().find((user) => user.id === DEMO_USER_ID)!;
+}
+
+export function register(name: string, email: string, password: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const users = getUsers();
+  if (users.some((user) => user.email.toLowerCase() === normalizedEmail)) {
+    throw new Error("Já existe uma conta com esse e-mail.");
+  }
+  if (password.length < 6) {
+    throw new Error("Use uma senha com pelo menos 6 caracteres.");
+  }
+
+  const user: User = {
+    id: makeId("user"),
+    name: name.trim() || normalizedEmail.split("@")[0],
+    email: normalizedEmail,
+    passwordHash: hashCredential(normalizedEmail, password),
+    createdAt: new Date().toISOString(),
+  };
+
+  saveUsers([user, ...users]);
+  saveUserData(user.id, createDefaultUserData());
+  setSession(user.id);
+  return user;
+}
+
+export function updateUser(user: User) {
+  const users = getUsers().map((item) => (item.id === user.id ? user : item));
+  saveUsers(users);
+}
+
+export function requestPasswordReset(email: string) {
+  const exists = getUsers().some((user) => user.email.toLowerCase() === email.trim().toLowerCase());
+  if (!exists) return false;
+  localStorage.setItem("cardoso_finance_reset_email", email.trim().toLowerCase());
+  return true;
+}
+
+export function resetPassword(email: string, password: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const users = getUsers();
+  const user = users.find((item) => item.email.toLowerCase() === normalizedEmail);
+  if (!user) throw new Error("Conta não encontrada.");
+  if (password.length < 6) throw new Error("Use uma senha com pelo menos 6 caracteres.");
+  user.passwordHash = hashCredential(normalizedEmail, password);
+  saveUsers(users);
+  return user;
+}
+
+export function getSessionUser() {
+  const userId = localStorage.getItem(SESSION_KEY);
+  if (!userId) return null;
+  return getUsers().find((user) => user.id === userId) ?? null;
+}
+
+export function setSession(userId: string) {
+  localStorage.setItem(SESSION_KEY, userId);
+}
+
+export function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function dataKey(userId: string) {
+  return `${DATA_PREFIX}_${userId}`;
+}
+
+export function getUserData(userId: string): UserData {
+  const existing = safeJsonParse<UserData | null>(localStorage.getItem(dataKey(userId)), null);
+  if (!existing) {
+    const created = createDefaultUserData();
+    saveUserData(userId, created);
+    return created;
+  }
+  return normalizeData(existing);
+}
+
+export function saveUserData(userId: string, data: UserData) {
+  localStorage.setItem(dataKey(userId), JSON.stringify(normalizeData(data)));
+}
+
+export function exportUserData(userId: string) {
+  return JSON.stringify(getUserData(userId), null, 2);
+}
+
+export function importUserData(userId: string, payload: string) {
+  const parsed = JSON.parse(payload) as UserData;
+  const normalized = normalizeData(parsed);
+  saveUserData(userId, normalized);
+  return normalized;
+}
+
+export function normalizeData(data: UserData): UserData {
+  const categories = data.categories?.length ? data.categories : createDefaultUserData().categories;
+  const hasUncategorized = categories.some((category) => category.id === UNCATEGORIZED_ID);
+  const normalizedCategories: Category[] = hasUncategorized
+    ? categories
+    : [{ id: UNCATEGORIZED_ID, name: "Sem categoria", type: "both", color: "#64748b", icon: "Circle" }, ...categories];
+
+  const accounts = data.accounts?.length ? data.accounts : createDefaultUserData().accounts;
+  const accountIds = new Set(accounts.map((account) => account.id));
+  const categoryIds = new Set(normalizedCategories.map((category) => category.id));
+  const transactions: Transaction[] = (data.transactions ?? []).map((transaction) => ({
+    ...transaction,
+    accountId: accountIds.has(transaction.accountId) ? transaction.accountId : DEFAULT_ACCOUNT_ID,
+    categoryId: categoryIds.has(transaction.categoryId) ? transaction.categoryId : UNCATEGORIZED_ID,
+    tags: transaction.tags ?? [],
+  }));
+
+  return {
+    accounts,
+    categories: normalizedCategories,
+    transactions,
+    goals: data.goals ?? [],
+    investments: data.investments ?? [],
+    operations: data.operations ?? [],
+    dividends: data.dividends ?? [],
+    importBatches: data.importBatches ?? [],
+    insights: data.insights ?? [],
+    chat: data.chat ?? [],
+    settings: data.settings ?? createDefaultUserData().settings,
+  };
+}
