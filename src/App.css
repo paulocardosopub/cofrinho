@@ -2505,6 +2505,18 @@ button:disabled:hover {
 }
 
 .auth-page {
+  --bg: #070b12;
+  --bg-2: #0a111d;
+  --surface: rgba(14, 22, 35, 0.88);
+  --surface-strong: #111c2e;
+  --surface-soft: rgba(24, 39, 61, 0.82);
+  --text: #edf6ff;
+  --muted: #9fb1c8;
+  --border: rgba(132, 166, 205, 0.22);
+  --brand: #14b8a6;
+  --brand-strong: #5eead4;
+  --shadow: 0 22px 60px rgba(0, 0, 0, 0.36);
+  --glow: 0 0 0 1px rgba(94, 234, 212, 0.18), 0 0 34px rgba(20, 184, 166, 0.12);
   position: relative;
   z-index: 1;
   min-height: 100vh;
