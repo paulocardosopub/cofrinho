@@ -63,6 +63,7 @@ import { AppDataProvider, useAppData } from "./hooks/useAppData";
 import { analyzeImageFiles, parseCsvFile } from "./services/importService";
 import { aiService } from "./services/aiService";
 import { fetchFundQuotes, type FundQuote } from "./services/marketData";
+import { analyzeInvestmentScreenshots, type InvestmentImageAnalysis } from "./services/investmentImageService";
 import type {
   AssetType,
   Category,
@@ -434,15 +435,16 @@ function DashboardPage() {
             </ResponsiveContainer>
           </ChartBox>
         </Panel>
-        <Panel title="Despesas por categoria">
+        <Panel title="Despesas por categoria" mobileDefaultCollapsed>
           {categories.length ? <PieChartBlock data={categories.map((item) => ({ name: item.name, value: item.value }))} /> : <EmptyState title="Sem despesas no período" text="Importe transações ou cadastre uma saída para preencher este gráfico." />}
         </Panel>
-        <Panel title="Distribuição dos investimentos">
+        <Panel title="Distribuição dos investimentos" mobileDefaultCollapsed>
           {allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Carteira vazia" text="Cadastre seus FIIs, CDBs, ações ou crypto para acompanhar o patrimônio." />}
         </Panel>
         <div className="dashboard-wide">
           <Panel
             title="Radar de FIIs"
+            mobileDefaultCollapsed
             action={(
               <button className="secondary-button" type="button" onClick={() => void refreshFiiQuotes()} disabled={quotesLoading || !fiiAssets.length}>
                 {quotesLoading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
@@ -459,7 +461,7 @@ function DashboardPage() {
         <Panel title="Últimas transações" action={<NavLink className="text-link" to="/transacoes">Ver todas</NavLink>}>
           <TransactionList transactions={latest} />
         </Panel>
-        <Panel title="Alertas e insights">
+        <Panel title="Alertas e insights" mobileDefaultCollapsed>
           <div className="insight-list">
             {data.insights.slice(0, 4).map((insight) => (
               <div className={`insight insight-${insight.severity}`} key={insight.id}>
@@ -749,13 +751,16 @@ function InvestmentsPage() {
         <StatCard icon={BadgeDollarSign} label="Valor atual" value={formatCurrency(summary.current)} tone="green" />
         <StatCard icon={TrendingIcon} label="Resultado" value={formatCurrency(summary.investmentReturn)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
       </div>
+      <Panel title="Atualizar por print" action={<Pill color="#38bdf8">IA</Pill>}>
+        <InvestmentScreenshotUpdater assets={data.investments} onUpdate={updateInvestment} />
+      </Panel>
       <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["lista", "Lista"], ["fiis", "FIIs"], ["categorias", "Categorias"]]} />
       {tab === "lista" ? (
         <div className="two-column">
           <Panel title="Carteira">
             <InvestmentTable assets={data.investments} onEdit={setEditing} onDelete={deleteInvestment} />
           </Panel>
-          <Panel title="Evolução da carteira">
+          <Panel title="Evolução da carteira" mobileDefaultCollapsed>
             <ChartBox>
               <ResponsiveContainer>
                 <LineChart data={portfolio}>
@@ -775,7 +780,7 @@ function InvestmentsPage() {
           <Panel title="Atualização rápida de FIIs" action={<Pill>{fiiAssets.length} FII(s)</Pill>}>
             {fiiAssets.length ? <FiiQuickUpdate assets={fiiAssets} onUpdate={updateInvestment} /> : <EmptyState title="Nenhum FII cadastrado" text="Cadastre FIIs para acompanhar cotas, preço médio, cotação e proventos." />}
           </Panel>
-          <Panel title="Proventos por mês">
+          <Panel title="Proventos por mês" mobileDefaultCollapsed>
             <ChartBox>
               <ResponsiveContainer>
                 <BarChart data={getDividendsByMonth(data.dividends)}>
@@ -1303,23 +1308,50 @@ function GoalForm({ goal, categories, onSave }: { goal: Goal; categories: Catego
 function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset[]; onEdit: (asset: InvestmentAsset) => void; onDelete: (id: string) => void }) {
   if (!assets.length) return <EmptyState title="Nenhum investimento cadastrado" text="Cadastre ativos manualmente ou use a importação por imagem para montar a carteira." />;
   return (
-    <div className="data-table-wrap">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Ativo</th>
-            <th>Tipo</th>
-            <th>Qtd.</th>
-            <th>Preço médio</th>
-            <th>Preço atual</th>
-            <th>Resultado</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {assets.map((asset) => {
-            const result = asset.currentValue + asset.dividends - asset.investedValue;
-            return (
+    <>
+      <div className="investment-mobile-list">
+        {assets.map((asset) => {
+          const result = asset.currentValue + asset.dividends - asset.investedValue;
+          return (
+            <article className="investment-mobile-card" key={asset.id}>
+              <div className="investment-mobile-head">
+                <div>
+                  <strong>{asset.ticker}</strong>
+                  <span>{asset.name}</span>
+                </div>
+                <Pill>{assetTypeLabel(asset.assetType)}</Pill>
+              </div>
+              <div className="investment-mobile-metrics">
+                <span>Qtd.<strong>{asset.quantity}</strong></span>
+                <span>PM<strong>{formatCurrency(asset.averagePrice)}</strong></span>
+                <span>Atual<strong>{formatCurrency(asset.currentPrice)}</strong></span>
+                <span>Total<strong className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatCurrency(result)}</strong></span>
+              </div>
+              <div className="row-actions">
+                <button className="icon-button" type="button" onClick={() => onEdit(asset)} aria-label="Editar"><Edit3 size={16} /></button>
+                <button className="icon-button danger-icon" type="button" onClick={() => window.confirm("Excluir ativo?") && onDelete(asset.id)} aria-label="Excluir"><Trash2 size={16} /></button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <div className="data-table-wrap investment-desktop-table">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Ativo</th>
+              <th>Tipo</th>
+              <th>Qtd.</th>
+              <th>Preço médio</th>
+              <th>Preço atual</th>
+              <th>Resultado</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {assets.map((asset) => {
+              const result = asset.currentValue + asset.dividends - asset.investedValue;
+              return (
               <tr key={asset.id}>
                 <td><strong>{asset.ticker}</strong><span>{asset.name}</span></td>
                 <td>{assetTypeLabel(asset.assetType)}</td>
@@ -1334,11 +1366,12 @@ function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset
                   </div>
                 </td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -1439,14 +1472,105 @@ function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentA
   );
 }
 
+function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
+  const [analysis, setAnalysis] = useState<InvestmentImageAnalysis | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+
+    setLoading(true);
+    setError("");
+    setAnalysis(null);
+    try {
+      const result = await analyzeInvestmentScreenshots(files, assets);
+      const applied = applyInvestmentUpdates(result, assets, onUpdate);
+      setAnalysis({
+        ...result,
+        summary: applied ? `${result.summary} ${applied} ativo(s) atualizado(s).` : result.summary,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível ler o print agora.");
+    } finally {
+      setLoading(false);
+      event.target.value = "";
+    }
+  }
+
+  if (!assets.length) return <EmptyState title="Sem ativos cadastrados" text="Cadastre seus investimentos antes de atualizar por print." />;
+
+  return (
+    <div className="screenshot-updater">
+      <label className="upload-zone compact-upload">
+        <Upload size={22} />
+        <strong>Enviar print da carteira</strong>
+        <span>A IA lê banco/corretora e atualiza ticker, cota, quantidade e valor total após casar com seus ativos.</span>
+        <input type="file" accept="image/*" multiple onChange={handleFiles} />
+      </label>
+      {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Lendo print com IA...</div> : null}
+      {error ? <div className="inline-alert warning-alert">{error}</div> : null}
+      {analysis ? (
+        <div className="ai-result-list">
+          <strong>{analysis.summary}</strong>
+          {analysis.updates.map((item) => (
+            <div className="ai-result-row" key={`${item.ticker}-${item.sourceText}`}>
+              <div>
+                <strong>{normalizeTicker(item.ticker) || item.name || "Ativo identificado"}</strong>
+                <span>{item.sourceText}</span>
+              </div>
+              <span>{Math.round(item.confidence * 100)}%</span>
+            </div>
+          ))}
+          {analysis.unmatched.length ? <span className="muted-inline">Sem ativo cadastrado: {analysis.unmatched.join(", ")}</span> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function applyInvestmentUpdates(result: InvestmentImageAnalysis, assets: InvestmentAsset[], onUpdate: (asset: InvestmentAsset) => void) {
+  let applied = 0;
+  result.updates.forEach((update) => {
+    if (update.confidence < 0.55) return;
+    const ticker = normalizeTicker(update.ticker);
+    const asset = assets.find((item) => normalizeTicker(item.ticker) === ticker);
+    if (!asset) return;
+
+    const quantity = finiteOr(update.quantity, asset.quantity);
+    const averagePrice = finiteOr(update.averagePrice, asset.averagePrice);
+    const inferredPrice = update.currentPrice ?? (update.currentValue && quantity > 0 ? update.currentValue / quantity : null);
+    const currentPrice = finiteOr(inferredPrice, asset.currentPrice);
+    const currentValue = finiteOr(update.currentValue, quantity * currentPrice);
+    const dividends = finiteOr(update.dividends, asset.dividends);
+
+    onUpdate({
+      ...asset,
+      quantity,
+      averagePrice,
+      currentPrice,
+      currentValue,
+      dividends,
+      notes: [asset.notes, `Atualizado por print com IA: ${update.sourceText}`].filter(Boolean).join("\n"),
+    });
+    applied += 1;
+  });
+  return applied;
+}
+
+function finiteOr(value: number | null | undefined, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 function FiiQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
   const [drafts, setDrafts] = useState<Record<string, number>>(() => Object.fromEntries(assets.map((asset) => [asset.id, asset.currentPrice])));
   return (
     <div className="stack-list">
       <label className="upload-zone small">
         <Upload size={24} />
-        <strong>Atualização por print da corretora</strong>
-        <span>Use a importação em Transações para prévia mockada; aqui ajuste preços manualmente.</span>
+        <strong>Atualização manual rápida</strong>
+        <span>Para print com IA, use o painel Atualizar por print na tela de Investimentos.</span>
       </label>
       {assets.map((asset) => (
         <div className="list-row" key={asset.id}>
@@ -1485,7 +1609,7 @@ function PieChartBlock({ data }: { data: Array<{ name: string; value: number }> 
     <ChartBox>
       <ResponsiveContainer>
         <PieChart>
-          <Pie data={data} dataKey="value" nameKey="name" innerRadius={54} outerRadius={88} paddingAngle={3} stroke="rgba(7, 11, 18, 0.85)" strokeWidth={3}>
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius={42} outerRadius={72} paddingAngle={3} stroke="rgba(7, 11, 18, 0.85)" strokeWidth={3}>
             {data.map((entry, index) => <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />)}
           </Pie>
           <Tooltip formatter={(value) => formatCurrency(Number(value))} />
@@ -1511,19 +1635,47 @@ function Page({ title, subtitle, action, children }: { title: string; subtitle?:
   );
 }
 
-function Panel({ title, action, children }: { title?: string; action?: ReactNode; children?: ReactNode }) {
+function Panel({
+  title,
+  action,
+  children,
+  defaultCollapsed = false,
+  mobileDefaultCollapsed = false,
+}: {
+  title?: string;
+  action?: ReactNode;
+  children?: ReactNode;
+  defaultCollapsed?: boolean;
+  mobileDefaultCollapsed?: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(() => defaultCollapsed || (mobileDefaultCollapsed && isMobileViewport()));
+  const label = title ?? "painel";
+
   return (
-    <section className="panel">
+    <section className={`panel ${collapsed ? "panel-collapsed" : ""}`}>
       <span className="panel-scan" aria-hidden="true" />
-      {title || action ? (
-        <div className="panel-header">
-          {title ? <h3>{title}</h3> : <span />}
+      <div className="panel-header">
+        {title ? <h3>{title}</h3> : <span />}
+        <div className="panel-actions">
           {action}
+          <button
+            className="icon-button panel-toggle"
+            type="button"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? `Expandir ${label}` : `Minimizar ${label}`}
+            onClick={() => setCollapsed((current) => !current)}
+          >
+            <ChevronRight size={16} />
+          </button>
         </div>
-      ) : null}
-      {children}
+      </div>
+      {collapsed ? null : <div className="panel-content">{children}</div>}
     </section>
   );
+}
+
+function isMobileViewport() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches;
 }
 
 function Modal({ title, open, onClose, children, wide }: { title: string; open: boolean; onClose: () => void; children: ReactNode; wide?: boolean }) {

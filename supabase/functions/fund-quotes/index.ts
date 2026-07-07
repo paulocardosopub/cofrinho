@@ -35,13 +35,55 @@ Deno.serve(async (request) => {
     const tickers = Array.isArray(body.tickers) ? body.tickers.map(normalizeTicker).filter(Boolean).slice(0, 24) : [];
     if (!tickers.length) return jsonResponse({ quotes: [] }, 200);
 
-    const settled = await Promise.allSettled(tickers.map(fetchYahooQuote));
+    const settled = await Promise.allSettled(tickers.map(fetchQuote));
     const quotes = settled.flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []));
     return jsonResponse({ quotes }, 200);
   } catch {
     return jsonResponse({ error: "Não foi possível buscar as cotações agora." }, 500);
   }
 });
+
+async function fetchQuote(ticker: string) {
+  return (await fetchGoogleFinanceQuote(ticker)) ?? (await fetchYahooQuote(ticker));
+}
+
+async function fetchGoogleFinanceQuote(ticker: string) {
+  const response = await fetch(`https://www.google.com/finance/quote/${encodeURIComponent(ticker)}:BVMF`, {
+    headers: {
+      accept: "text/html",
+      "user-agent": "Mozilla/5.0 CofrinhoApp/1.0",
+    },
+  });
+  if (!response.ok) return null;
+
+  const html = await response.text();
+  const price = extractGooglePrice(html);
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  return {
+    ticker,
+    price,
+    points: [],
+    source: "Google Finance",
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+function extractGooglePrice(html: string) {
+  const raw =
+    html.match(/data-last-price=["']([^"']+)["']/)?.[1] ??
+    html.match(/data-last-price=&quot;([^&]+)&quot;/)?.[1] ??
+    html.match(/R\$\s?([0-9]+(?:[.,][0-9]+)?)/)?.[1];
+  if (!raw) return 0;
+  return parseMarketNumber(raw);
+}
+
+function parseMarketNumber(raw: string) {
+  const value = raw.trim();
+  if (value.includes(",") && value.includes(".")) return Number(value.replace(/\./g, "").replace(",", "."));
+  if (value.includes(",")) return Number(value.replace(",", "."));
+  return Number(value);
+}
 
 async function fetchYahooQuote(ticker: string) {
   const symbol = `${ticker}.SA`;
