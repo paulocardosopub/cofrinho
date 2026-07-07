@@ -49,7 +49,7 @@ export const defaultSettings: UserSettings = {
   visualVersion: 2,
   dashboardPeriod: "month",
   notifications: true,
-  aiAssistantName: "Guru Cardoso",
+  aiAssistantName: "Guru do Cofrinho",
   defaultBroker: "C6",
   quoteRefreshMode: "manual",
 };
@@ -309,7 +309,7 @@ export const defaultChat: ChatMessage[] = [
   {
     id: "chat-welcome",
     role: "assistant",
-    content: "Olá, Paulo. Sou o Guru Cardoso. Posso analisar seus gastos, metas e carteira com base nos dados cadastrados aqui.",
+    content: "Olá, Paulo. Sou o Guru do Cofrinho. Posso analisar seus gastos, metas e carteira com base nos dados cadastrados aqui.",
     createdAt: now,
   },
 ];

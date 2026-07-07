@@ -1,4 +1,4 @@
-# Inventário do App Atual - Cardoso Finance/Base44
+# Inventário do App Atual no Base44
 
 Data da análise: 07/07/2026  
 URL analisada: https://cardosofinance.base44.app/
@@ -10,16 +10,16 @@ URL analisada: https://cardosofinance.base44.app/
 - `/investimentos`: carteira de investimentos com abas Lista, FIIs, Categorias e Agrupado.
 - `/guru`: Guru Financeiro com abas Chat, Análise, Insights, Metas e Memória.
 - `/configuracoes`: preferências, exportação/importação, backup, IA, metas, segurança, cache, sobre, personalização da home e central de atualizações.
-- `/mineracao`: mini game CardosoCoin. Removido do escopo por decisão do usuário.
+- `/mineracao`: mini game de moeda fictícia. Removido do escopo por decisão do usuário.
 - `/Categories` e `/categories`: retornam 404 no app atual.
 - `/login`, `/register`, `/forgot-password`, `/reset-password`: fluxo de autenticação existe, mas ainda com textos em inglês e títulos antigos `FinControl`.
 
-## Branding encontrado
+## Branding encontrado no app original
 
-- Marca visual principal: Cardoso Wallet/Cardoso Finance.
+- Marca visual principal anterior encontrada no Base44.
 - Títulos de algumas páginas ainda usam `FinControl`, especialmente Transações, Investimentos, Login, Cadastro e recuperação de senha.
-- Configurações mostram "Versão 1.0 · Cardoso Wallet" e "Desenvolvido por Base44 AI".
-- Correção necessária: padronizar tudo como Cardoso Finance e Paulo Cardoso.
+- Configurações mostram "Versão 1.0 · Cofrinho App" e "Desenvolvido por Base44 AI".
+- Correção necessária: padronizar tudo como Cofrinho App.
 
 ## Painel
 
@@ -110,7 +110,7 @@ Elementos encontrados:
 
 ## Cripto/Mineracao
 
-- A rota atual `/mineracao` é um mini game "CardosoCoin".
+- A rota atual `/mineracao` é um mini game de moeda fictícia.
 - O usuário pediu para pular essa página porque não quer mais o mini game no novo app.
 - Decisão: remover navegação Cripto/Mineração; manter "Crypto" apenas como tipo de investimento.
 
@@ -129,7 +129,7 @@ Ideias úteis para adaptar:
 - Mensagem forte de segurança: só leitura, sem movimentar dinheiro e sem pedir senha de banco.
 - Relatórios e insights personalizados.
 
-Adaptação para Cardoso Finance:
+Adaptação para Cofrinho App:
 
 - Manter o app sem conexão bancária obrigatória.
 - Reforçar importação por CSV/print como alternativa segura.
@@ -149,7 +149,7 @@ Ideias úteis para adaptar:
 - Metas/cofrinho e ideia de guardar dinheiro sem perceber.
 - Comunicação de segurança e simplicidade.
 
-Adaptação para Cardoso Finance:
+Adaptação para Cofrinho App:
 
 - Orçamentos por categoria.
 - Marcação de transações recorrentes.

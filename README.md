@@ -1,6 +1,6 @@
-# Cardoso Finance
+# Cofrinho App
 
-Cardoso Finance é um app financeiro web/mobile para organizar despesas, receitas, investimentos, FIIs, metas e relatórios com apoio de IA. O app prioriza importação por CSV, imagem ou PDF para evitar que o usuário precise entregar senha de banco.
+Cofrinho App é um app financeiro web/mobile para organizar despesas, receitas, investimentos, FIIs, metas e relatórios com apoio de IA. O app prioriza importação por CSV, imagem ou PDF para evitar que o usuário precise entregar senha de banco.
 
 ## Funcionalidades
 

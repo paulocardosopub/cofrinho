@@ -145,7 +145,7 @@ function AppLayout() {
         <div className="brand">
           <div className="brand-mark">CF</div>
           <div>
-            <strong>Cardoso Finance</strong>
+            <strong>Cofrinho App</strong>
             <span>por Paulo Cardoso</span>
           </div>
         </div>
@@ -176,7 +176,7 @@ function AppLayout() {
           </button>
           <div>
             <span className="eyebrow">Carteira segura, sem conexão bancária obrigatória</span>
-            <h1>Cardoso Finance</h1>
+            <h1>Cofrinho App</h1>
           </div>
           <div className="topbar-actions">
             <button className="ghost-button hide-small" type="button" onClick={() => navigate("/transacoes")}>
@@ -248,7 +248,7 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
   }
 
   const title = {
-    login: "Entrar no Cardoso Finance",
+    login: "Entrar no Cofrinho App",
     register: "Criar sua conta",
     forgot: "Recuperar senha",
     reset: "Definir nova senha",
@@ -260,7 +260,7 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
         <div className="brand auth-brand">
           <div className="brand-mark">CF</div>
           <div>
-            <strong>Cardoso Finance</strong>
+            <strong>Cofrinho App</strong>
             <span>gestão financeira com IA e importação por print</span>
           </div>
         </div>
@@ -927,7 +927,7 @@ function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "cardoso-finance-backup.json";
+    link.download = "cofrinho-backup.json";
     link.click();
     URL.revokeObjectURL(url);
   }

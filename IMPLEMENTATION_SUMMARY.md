@@ -4,7 +4,7 @@
 
 - App React + TypeScript criado do zero com Vite.
 - Interface mobile/desktop com navegação lateral no desktop e navegação inferior no mobile.
-- Branding padronizado como Cardoso Finance e Paulo Cardoso.
+- Branding padronizado como Cofrinho App e Paulo Cardoso.
 - Remoção da página Cripto/mini game do escopo.
 - Rotas principais:
   - `/`
