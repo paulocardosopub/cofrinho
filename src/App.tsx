@@ -85,6 +85,7 @@ import {
 import { formatCurrency, formatDate, formatPercent, toInputDate } from "./utils/format";
 
 const chartColors = ["#14b8a6", "#38bdf8", "#a78bfa", "#fbbf24", "#fb7185", "#34d399", "#818cf8", "#f97316"];
+const routerBasename = import.meta.env.BASE_URL === "/" ? undefined : import.meta.env.BASE_URL;
 
 const navigation = [
   { to: "/", label: "Painel", icon: LayoutDashboard },
@@ -99,7 +100,7 @@ const navigation = [
 function App() {
   return (
     <AppDataProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={routerBasename}>
         <Routes>
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/register" element={<AuthPage mode="register" />} />

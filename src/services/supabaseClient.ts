@@ -9,6 +9,11 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = isSupabaseConfigured ? createClient(supabaseUrl!, supabaseAnonKey!) : null;
 const REMOTE_DATA_TABLE = "cofrinho_user_app_data";
 
+function getAppUrl(path: string) {
+  const basePath = import.meta.env.BASE_URL.endsWith("/") ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  return new URL(`${basePath}${path.replace(/^\//, "")}`, window.location.origin).toString();
+}
+
 function toAppUser(id: string, email: string, name?: string): User {
   return {
     id,
@@ -57,7 +62,7 @@ export async function signOutRemote() {
 export async function requestPasswordResetRemote(email: string) {
   if (!supabase) return false;
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
+    redirectTo: getAppUrl("reset-password"),
   });
   if (error) throw error;
   return true;
