@@ -76,7 +76,7 @@ import { AppDataProvider, useAppData } from "./hooks/useAppData";
 import { analyzeImageFiles, parseCsvFile } from "./services/importService";
 import { aiService } from "./services/aiService";
 import { fetchFundQuotes, type FundQuote } from "./services/marketData";
-import { analyzeInvestmentScreenshots, type InvestmentImageAnalysis } from "./services/investmentImageService";
+import { analyzeInvestmentScreenshots, type InvestmentImageAnalysis, type InvestmentImageUpdate } from "./services/investmentImageService";
 import type {
   AssetType,
   Category,
@@ -873,7 +873,7 @@ function InvestmentsPage() {
         <StatCard icon={BadgeDollarSign} label="Valor atual" value={formatCurrency(summary.current)} tone="green" />
         <StatCard icon={TrendingIcon} label="Resultado" value={formatCurrency(summary.investmentReturn)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
       </div>
-      <Panel title="Importar print da carteira" action={<Pill color="#38bdf8">IA</Pill>}>
+      <Panel title="Importar print da carteira" action={<Pill color="#38bdf8">OCR local</Pill>}>
         <InvestmentScreenshotUpdater assets={data.investments} onUpdate={updateInvestment} />
       </Panel>
       <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["lista", "Lista"], ["fiis", "FIIs"], ["categorias", "Categorias"]]} />
@@ -1720,8 +1720,13 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
     setConfirmed("");
     try {
       const result = await analyzeInvestmentScreenshots(files, assets);
-      setAnalysis(result);
-      setPreview(buildInvestmentUpdatePreview(result, assets));
+      const nextPreview = buildInvestmentUpdatePreview(result, assets);
+      const unmatchedUpdates = getUnmatchedInvestmentUpdates(result, assets);
+      setAnalysis({
+        ...result,
+        unmatched: [...result.unmatched, ...unmatchedUpdates],
+      });
+      setPreview(nextPreview);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível ler o print agora.");
     } finally {
@@ -1737,10 +1742,10 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
       <label className="upload-zone compact-upload">
         <Upload size={22} />
         <strong>Enviar print da carteira</strong>
-        <span>A IA lê banco/corretora e atualiza ticker, cota, quantidade e valor total após casar com seus ativos.</span>
+        <span>O app lê o texto do print no próprio navegador e prepara a atualização para você confirmar.</span>
         <input type="file" accept="image/*" multiple onChange={handleFiles} />
       </label>
-      {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Lendo print com IA...</div> : null}
+      {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Lendo print com OCR local...</div> : null}
       {error ? <div className="inline-alert warning-alert">{error}</div> : null}
       {confirmed ? <div className="inline-alert">{confirmed}</div> : null}
       {analysis ? (
@@ -1798,8 +1803,7 @@ interface InvestmentUpdatePreview {
 function buildInvestmentUpdatePreview(result: InvestmentImageAnalysis, assets: InvestmentAsset[]) {
   return result.updates.flatMap((update) => {
     if (update.confidence < 0.55) return [];
-    const ticker = normalizeTicker(update.ticker);
-    const asset = assets.find((item) => normalizeTicker(item.ticker) === ticker);
+    const asset = findInvestmentUpdateAsset(update, assets);
     if (!asset) return [];
 
     const quantity = finiteOr(update.quantity, asset.quantity);
@@ -1826,6 +1830,40 @@ function buildInvestmentUpdatePreview(result: InvestmentImageAnalysis, assets: I
   });
 }
 
+function getUnmatchedInvestmentUpdates(result: InvestmentImageAnalysis, assets: InvestmentAsset[]) {
+  return result.updates
+    .filter((update) => update.confidence >= 0.55 && !findInvestmentUpdateAsset(update, assets))
+    .map((update) => update.name || normalizeTicker(update.ticker) || update.sourceText)
+    .filter(Boolean);
+}
+
+function findInvestmentUpdateAsset(update: InvestmentImageUpdate, assets: InvestmentAsset[]) {
+  const ticker = normalizeTicker(update.ticker);
+  if (ticker) {
+    const tickerMatch = assets.find((item) => normalizeTicker(item.ticker) === ticker);
+    if (tickerMatch) return tickerMatch;
+  }
+
+  const updateName = normalizeInvestmentMatchText(update.name || update.sourceText);
+  if (!updateName) return null;
+  return assets.find((asset) => {
+    const assetName = normalizeInvestmentMatchText(`${asset.name} ${asset.ticker} ${asset.category ?? ""}`);
+    return assetName === updateName || assetName.includes(updateName) || updateName.includes(assetName);
+  }) ?? null;
+}
+
+function normalizeInvestmentMatchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\|/g, "1")
+    .replace(/\bcdbc6\b/gi, "cdb c6")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function applyInvestmentPreviewUpdates(preview: InvestmentUpdatePreview[], onUpdate: (asset: InvestmentAsset) => void) {
   preview.forEach((item) => {
     onUpdate({
@@ -1835,7 +1873,7 @@ function applyInvestmentPreviewUpdates(preview: InvestmentUpdatePreview[], onUpd
       currentPrice: item.currentPrice,
       currentValue: item.currentValue,
       dividends: item.dividends,
-      notes: [item.asset.notes, `Atualizado por print com IA: ${item.sourceText}`].filter(Boolean).join("\n"),
+      notes: [item.asset.notes, `Atualizado por print com OCR local: ${item.sourceText}`].filter(Boolean).join("\n"),
     });
   });
 }
@@ -1851,7 +1889,7 @@ function FiiQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpd
       <label className="upload-zone small">
         <Upload size={24} />
         <strong>Atualização manual rápida</strong>
-        <span>Para print com IA, use o painel Atualizar por print na tela de Investimentos.</span>
+        <span>Para print, use o painel de importação na tela de Investimentos.</span>
       </label>
       {assets.map((asset) => (
         <div className="list-row" key={asset.id}>
