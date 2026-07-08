@@ -462,7 +462,7 @@ function DashboardPage() {
         <Panel title="Evolução dos investimentos">
           <ChartBox>
             <ResponsiveContainer>
-              <ComposedChart data={investmentEvolution}>
+              <ComposedChart data={investmentEvolution} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="portfolioCurrentArea" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#5eead4" stopOpacity={0.62} />
@@ -488,7 +488,7 @@ function DashboardPage() {
         <Panel title="Evolução do saldo">
           <ChartBox>
             <ResponsiveContainer>
-              <AreaChart data={cashflow}>
+              <AreaChart data={cashflow} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="balanceArea" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.55} />
@@ -616,7 +616,7 @@ function TransactionsPage() {
       <Panel title="Receitas x despesas" mobileDefaultCollapsed>
         <ChartBox>
           <ResponsiveContainer>
-            <BarChart data={transactionCashflow}>
+            <BarChart data={transactionCashflow} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="transactionIncomeBar" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#5eead4" stopOpacity={0.95} />
@@ -885,7 +885,7 @@ function InvestmentsPage() {
           <Panel title="Evolução da carteira" mobileDefaultCollapsed>
             <ChartBox>
               <ResponsiveContainer>
-                <LineChart data={portfolio}>
+                <LineChart data={portfolio} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="label" />
                   <YAxis tickFormatter={(value) => `R$${Number(value) / 1000}k`} />
@@ -905,7 +905,7 @@ function InvestmentsPage() {
           <Panel title="Proventos por mês" mobileDefaultCollapsed>
             <ChartBox>
               <ResponsiveContainer>
-                <BarChart data={getDividendsByMonth(data.dividends)}>
+                <BarChart data={getDividendsByMonth(data.dividends)} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" />
                   <YAxis tickFormatter={(value) => `R$${Number(value)}`} />
@@ -1004,7 +1004,7 @@ function GuruPage() {
           <Panel title="Receitas vs despesas">
             <ChartBox>
               <ResponsiveContainer>
-                <BarChart data={getMonthlyCashflow(data.transactions, 6)}>
+                <BarChart data={getMonthlyCashflow(data.transactions, 6)} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="label" />
                   <YAxis />
@@ -1087,7 +1087,7 @@ function ReportsPage() {
         <Panel title="Relatório mensal">
           <ChartBox>
             <ResponsiveContainer>
-              <AreaChart data={cashflow}>
+              <AreaChart data={cashflow} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" />
                 <YAxis />
@@ -1103,7 +1103,7 @@ function ReportsPage() {
         <Panel title="FIIs e dividendos">
           <ChartBox>
             <ResponsiveContainer>
-              <BarChart data={dividends}>
+              <BarChart data={dividends} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
                 <YAxis />
@@ -1659,7 +1659,7 @@ function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentA
       <div className="fii-radar-chart">
         <ChartBox>
           <ResponsiveContainer>
-            <BarChart data={chartData}>
+            <BarChart data={chartData} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="ticker" />
               <YAxis tickFormatter={(value) => formatPercent(Number(value))} />
@@ -1930,18 +1930,39 @@ function TransactionList({ transactions }: { transactions: Transaction[] }) {
 }
 
 function PieChartBlock({ data }: { data: Array<{ name: string; value: number }> }) {
+  const visibleData = data.filter((item) => item.value > 0);
+  const total = visibleData.reduce((sum, item) => sum + item.value, 0);
+  const compactTotal = total >= 10000
+    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", notation: "compact", maximumFractionDigits: 1 }).format(total)
+    : formatCurrency(total);
+
   return (
-    <ChartBox>
-      <ResponsiveContainer>
-        <PieChart>
-          <Pie data={data} dataKey="value" nameKey="name" innerRadius={42} outerRadius={72} paddingAngle={3} stroke="rgba(7, 11, 18, 0.85)" strokeWidth={3}>
-            {data.map((entry, index) => <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />)}
-          </Pie>
-          <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-          <Legend />
-        </PieChart>
-      </ResponsiveContainer>
-    </ChartBox>
+    <div className="pie-chart-block">
+      <div className="pie-chart-visual">
+        <ResponsiveContainer>
+          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+            <Pie data={visibleData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="58%" outerRadius="90%" paddingAngle={3} stroke="rgba(7, 11, 18, 0.86)" strokeWidth={2} isAnimationActive={false}>
+              {visibleData.map((entry, index) => <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />)}
+            </Pie>
+            <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pie-total">
+          <span>Total</span>
+          <strong>{compactTotal}</strong>
+        </div>
+      </div>
+      <div className="pie-legend-list">
+        {visibleData.map((item, index) => (
+          <div className="pie-legend-item" key={item.name}>
+            <i style={{ background: chartColors[index % chartColors.length], color: chartColors[index % chartColors.length] }} />
+            <span>{item.name}</span>
+            <strong>{total ? formatPercent(item.value / total) : "0%"}</strong>
+            <small>{formatCurrency(item.value)}</small>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
