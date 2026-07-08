@@ -253,7 +253,10 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
       }
       if (mode === "register") {
         if (password !== confirm) throw new Error("As senhas não conferem.");
-        await signUp(name, email, password);
+        const status = await signUp(name, email, password);
+        if (status === "confirmation-sent") {
+          setMessage("Usuário criado. Confirme seu e-mail e depois volte para entrar.");
+        }
       }
       if (mode === "forgot") {
         const sent = await forgotPassword(email);

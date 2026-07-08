@@ -45,7 +45,7 @@ interface AppDataContextValue {
   syncStatus: "idle" | "syncing" | "synced" | "error";
   signIn: (email: string, password: string) => Promise<void>;
   signInDemo: () => void;
-  signUp: (name: string, email: string, password: string) => Promise<void>;
+  signUp: (name: string, email: string, password: string) => Promise<"signed-in" | "confirmation-sent">;
   signOut: () => Promise<void>;
   forgotPassword: (email: string) => Promise<boolean>;
   changePassword: (email: string, password: string) => Promise<void>;
@@ -150,18 +150,22 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       async signUp(name, email, password) {
         if (isSupabaseConfigured) {
-          const created = await signUpRemote(name, email, password);
-          if (!created) return;
+          const result = await signUpRemote(name, email, password);
+          if (!result) return "confirmation-sent";
+          if (result.needsEmailConfirmation) return "confirmation-sent";
+
+          const created = result.user;
           const initialData = createDefaultUserData();
           await saveRemoteUserData(created.id, initialData);
           saveUserData(created.id, initialData);
           setUser(created);
           setData(initialData);
-          return;
+          return "signed-in";
         }
         const created = register(name, email, password);
         setUser(created);
         setData(getUserData(created.id));
+        return "signed-in";
       },
       async signOut() {
         if (isSupabaseConfigured) await signOutRemote();

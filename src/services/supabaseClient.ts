@@ -12,6 +12,11 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = isSupabaseConfigured ? createClient(supabaseUrl!, supabaseAnonKey!) : null;
 const REMOTE_DATA_TABLE = "cofrinho_user_app_data";
 
+export interface RemoteSignUpResult {
+  user: User;
+  needsEmailConfirmation: boolean;
+}
+
 function getAppUrl(path: string) {
   const basePath = import.meta.env.BASE_URL.endsWith("/") ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
   return new URL(`${basePath}${path.replace(/^\//, "")}`, window.location.origin).toString();
@@ -27,6 +32,28 @@ function toAppUser(id: string, email: string, name?: string): User {
   };
 }
 
+function friendlyAuthError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+
+  if (lower.includes("security purposes") || lower.includes("after 60 seconds") || lower.includes("rate limit")) {
+    return new Error("O Supabase bloqueou novas tentativas por segurança. Aguarde 1 minuto e tente novamente.");
+  }
+  if (lower.includes("email not confirmed")) {
+    return new Error("Confirme seu e-mail antes de entrar. Veja sua caixa de entrada e a pasta de spam.");
+  }
+  if (lower.includes("already registered") || lower.includes("user already registered")) {
+    return new Error("Este e-mail já tem uma conta. Entre com sua senha ou recupere o acesso.");
+  }
+  if (lower.includes("invalid login credentials")) {
+    return new Error("E-mail ou senha incorretos.");
+  }
+  if (lower.includes("password")) {
+    return new Error("Use uma senha com pelo menos 6 caracteres.");
+  }
+  return error instanceof Error ? error : new Error("Não foi possível concluir agora.");
+}
+
 export async function getRemoteSessionUser() {
   if (!supabase) return null;
   const { data, error } = await supabase.auth.getSession();
@@ -40,21 +67,25 @@ export async function getRemoteSessionUser() {
 export async function signInRemote(email: string, password: string) {
   if (!supabase) return null;
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+  if (error) throw friendlyAuthError(error);
   if (!data.user.email) throw new Error("Conta sem e-mail confirmado.");
   return toAppUser(data.user.id, data.user.email, data.user.user_metadata?.name as string | undefined);
 }
 
-export async function signUpRemote(name: string, email: string, password: string) {
+export async function signUpRemote(name: string, email: string, password: string): Promise<RemoteSignUpResult | null> {
   if (!supabase) return null;
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: { data: { name } },
   });
-  if (error) throw error;
-  if (!data.user?.email) throw new Error("Cadastro criado, mas aguarda confirmação de e-mail.");
-  return toAppUser(data.user.id, data.user.email, name);
+  if (error) throw friendlyAuthError(error);
+  if (!data.user?.email) throw new Error("Cadastro criado. Confirme seu e-mail antes de entrar.");
+
+  return {
+    user: toAppUser(data.user.id, data.user.email, name),
+    needsEmailConfirmation: !data.session,
+  };
 }
 
 export async function signOutRemote() {
@@ -67,14 +98,14 @@ export async function requestPasswordResetRemote(email: string) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: getAppUrl("reset-password"),
   });
-  if (error) throw error;
+  if (error) throw friendlyAuthError(error);
   return true;
 }
 
 export async function updateRemotePassword(password: string) {
   if (!supabase) return false;
   const { error } = await supabase.auth.updateUser({ password });
-  if (error) throw error;
+  if (error) throw friendlyAuthError(error);
   return true;
 }
 
