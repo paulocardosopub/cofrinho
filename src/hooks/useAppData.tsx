@@ -368,7 +368,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       importJson(payload) {
         if (!user) return;
-        const imported = importUserData(user.id, payload);
+        const imported = importUserData(user.id, payload, data ?? undefined);
         setData(imported);
       },
       async syncToSupabase() {

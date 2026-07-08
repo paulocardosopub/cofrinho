@@ -5,7 +5,7 @@ import {
   DEMO_USER_ID,
   UNCATEGORIZED_ID,
 } from "../data/defaults";
-import type { Category, Transaction, User, UserData } from "../types";
+import type { Category, InvestmentAsset, Transaction, User, UserData } from "../types";
 
 const USERS_KEY = "cofrinho_users";
 const SESSION_KEY = "cofrinho_session";
@@ -208,9 +208,86 @@ export function exportUserData(userId: string) {
   return JSON.stringify(getUserData(userId), null, 2);
 }
 
-export function importUserData(userId: string, payload: string) {
-  const parsed = JSON.parse(payload) as UserData;
-  const normalized = normalizeData(parsed);
+interface InvestmentMigrationPayload {
+  cofrinhoMigrationVersion: number;
+  source?: string;
+  mode?: string;
+  categories?: Category[];
+  investments?: InvestmentAsset[];
+}
+
+function isInvestmentMigration(payload: unknown): payload is InvestmentMigrationPayload {
+  const candidate = payload as InvestmentMigrationPayload;
+  return candidate?.cofrinhoMigrationVersion === 1 && Array.isArray(candidate.investments);
+}
+
+function investmentMergeKey(asset: InvestmentAsset) {
+  return [
+    asset.id,
+    asset.ticker?.trim().toUpperCase(),
+    asset.name?.trim().toUpperCase(),
+    asset.buyDate,
+    asset.maturityDate ?? "",
+    Number(asset.investedValue || 0).toFixed(2),
+  ].join("|");
+}
+
+function categoryMergeKey(category: Category) {
+  return `${category.name.trim().toLowerCase()}|${category.type}`;
+}
+
+function mergeInvestmentMigration(current: UserData, migration: InvestmentMigrationPayload): UserData {
+  const now = new Date().toISOString();
+  const importedCategories = (migration.categories ?? []).map((category) => ({
+    ...category,
+    id: category.id || makeId("category"),
+    type: category.type || "investment",
+    color: category.color || "#2563eb",
+    icon: category.icon || "Landmark",
+  }));
+  const importedInvestments = (migration.investments ?? []).map((asset, index) => ({
+    ...asset,
+    id: asset.id || makeId("investment"),
+    quantity: Number(asset.quantity || 1),
+    averagePrice: Number(asset.averagePrice || asset.investedValue || 0),
+    currentPrice: Number(asset.currentPrice || asset.currentValue || asset.investedValue || 0),
+    investedValue: Number(asset.investedValue || 0),
+    currentValue: Number(asset.currentValue || asset.investedValue || 0),
+    dividends: Number(asset.dividends || 0),
+    buyDate: asset.buyDate || now.slice(0, 10),
+    createdAt: asset.createdAt || now,
+    updatedAt: asset.updatedAt || now,
+    notes: asset.notes || `Importado de ${migration.source ?? "migração"} #${index + 1}.`,
+  }));
+  const incomingCategoryKeys = new Set(importedCategories.map(categoryMergeKey));
+  const incomingKeys = new Set(importedInvestments.map(investmentMergeKey));
+  const keptCategories = current.categories.filter((category) => !incomingCategoryKeys.has(categoryMergeKey(category)));
+  const keptInvestments = current.investments.filter((asset) => !incomingKeys.has(investmentMergeKey(asset)));
+
+  return normalizeData({
+    ...current,
+    categories: [...keptCategories, ...importedCategories],
+    investments: [...keptInvestments, ...importedInvestments],
+    importBatches: [
+      {
+        id: makeId("batch"),
+        source: "json",
+        fileName: migration.source ?? "migração de investimentos",
+        createdAt: now,
+        status: "imported",
+        itemsTotal: importedInvestments.length + importedCategories.length,
+        importedTotal: importedInvestments.length + importedCategories.length,
+      },
+      ...current.importBatches,
+    ],
+  });
+}
+
+export function importUserData(userId: string, payload: string, currentData?: UserData) {
+  const parsed = JSON.parse(payload) as UserData | InvestmentMigrationPayload;
+  const normalized = isInvestmentMigration(parsed)
+    ? mergeInvestmentMigration(normalizeData(currentData ?? getUserData(userId)), parsed)
+    : normalizeData(parsed as UserData);
   saveUserData(userId, normalized);
   return normalized;
 }

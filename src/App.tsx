@@ -157,7 +157,6 @@ function TechBackdrop() {
 function AppLayout() {
   const { user, signOut, data } = useAppData();
   const [menuOpen, setMenuOpen] = useState(false);
-  const navigate = useNavigate();
   const summary = data ? calculateDashboard(data) : null;
 
   return (
@@ -205,10 +204,6 @@ function AppLayout() {
             <h1>Cofrinho App</h1>
           </div>
           <div className="topbar-actions">
-            <button className="ghost-button hide-small" type="button" onClick={() => navigate("/transacoes")}>
-              <Upload size={17} />
-              Importar
-            </button>
             <div className="user-pill">
               <UserRound size={17} />
               <span>{user?.name}</span>
@@ -552,7 +547,7 @@ function TransactionsPage() {
         <div className="action-row">
           <button className="secondary-button" type="button" onClick={() => setImportOpen(true)}>
             <Upload size={17} />
-            Importar
+            Importar extrato
           </button>
           <button className="danger-button" type="button" onClick={() => openNew("expense")}>
             <ReceiptText size={17} />
@@ -680,7 +675,7 @@ function TransactionsPage() {
       <Modal title={editing?.createdAt ? "Editar transação" : "Nova transação"} open={formOpen} onClose={() => setFormOpen(false)}>
         {editing ? <TransactionForm transaction={editing} data={data} onSave={save} /> : null}
       </Modal>
-      <Modal title="Importar extrato ou print" open={importOpen} onClose={() => setImportOpen(false)} wide>
+      <Modal title="Importar extrato bancário" open={importOpen} onClose={() => setImportOpen(false)} wide>
         <ImportFlow data={data} onImport={(items, fileName, source) => { importTransactions(items, fileName, source); setImportOpen(false); }} />
       </Modal>
     </Page>
@@ -783,7 +778,7 @@ function InvestmentsPage() {
         <StatCard icon={BadgeDollarSign} label="Valor atual" value={formatCurrency(summary.current)} tone="green" />
         <StatCard icon={TrendingIcon} label="Resultado" value={formatCurrency(summary.investmentReturn)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
       </div>
-      <Panel title="Atualizar por print" action={<Pill color="#38bdf8">IA</Pill>}>
+      <Panel title="Importar print da carteira" action={<Pill color="#38bdf8">IA</Pill>}>
         <InvestmentScreenshotUpdater assets={data.investments} onUpdate={updateInvestment} />
       </Panel>
       <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["lista", "Lista"], ["fiis", "FIIs"], ["categorias", "Categorias"]]} />
@@ -1082,7 +1077,7 @@ function SettingsPage() {
         <Panel title="Backup e restauração">
           <div className="button-stack">
             <button className="secondary-button" type="button" onClick={downloadJson}><Download size={17} />Exportar JSON</button>
-            <label className="file-button"><Upload size={17} />Importar JSON<input type="file" accept="application/json" onChange={handleImport} /></label>
+            <label className="file-button"><Upload size={17} />Importar JSON ou migração<input type="file" accept="application/json,.json" onChange={handleImport} /></label>
           </div>
         </Panel>
         <Panel title="IA e segurança">
@@ -1192,8 +1187,8 @@ function ImportFlow({ data, onImport }: { data: ReturnType<typeof useRequiredDat
     <div className="import-flow">
       <label className="upload-zone">
         <FileSpreadsheet size={32} />
-        <strong>Selecionar CSV, imagem ou PDF</strong>
-        <span>O app cria uma prévia para você revisar antes de salvar.</span>
+        <strong>Selecionar CSV, imagem ou PDF do extrato</strong>
+        <span>Use esta área para receitas, despesas, aportes e rendimentos que aparecem no extrato bancário.</span>
         <input type="file" accept=".csv,image/*,.pdf" multiple onChange={handleFiles} />
       </label>
       {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Analisando arquivo...</div> : null}
@@ -1246,7 +1241,7 @@ function ImportFlow({ data, onImport }: { data: ReturnType<typeof useRequiredDat
           </div>
         </>
       ) : (
-        <EmptyState title="Nenhum arquivo selecionado" text="CSV é importado de verdade. Imagens e PDFs geram uma prévia mockada até conectarmos OCR/IA no backend." />
+        <EmptyState title="Nenhum extrato selecionado" text="CSV vira prévia editável. Prints e PDFs devem representar extratos de banco, não telas de carteira de investimentos." />
       )}
     </div>
   );
