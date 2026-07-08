@@ -122,6 +122,32 @@ export function getPortfolioEvolution(investments: InvestmentAsset[], dividends:
   ];
 }
 
+export function getInvestmentEvolution(investments: InvestmentAsset[], dividends: DividendIncome[], monthsBack = 6) {
+  const now = new Date();
+  const months = Array.from({ length: monthsBack }).map((_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (monthsBack - 1 - index), 1);
+    const month = date.toISOString().slice(0, 7);
+    return {
+      month,
+      label: new Intl.DateTimeFormat("pt-BR", { month: "short", year: "2-digit" }).format(date),
+      investido: 0,
+      atual: 0,
+      proventos: 0,
+    };
+  });
+
+  return months.map((row) => {
+    const activeAssets = investments.filter((asset) => toMonth(asset.buyDate || asset.createdAt) <= row.month);
+    const monthDividends = dividends.filter((dividend) => toMonth(dividend.date) <= row.month);
+    return {
+      ...row,
+      investido: activeAssets.reduce((total, asset) => total + asset.investedValue, 0),
+      atual: activeAssets.reduce((total, asset) => total + asset.currentValue, 0),
+      proventos: monthDividends.reduce((total, dividend) => total + dividend.amount, 0),
+    };
+  });
+}
+
 export function getDividendsByMonth(dividends: DividendIncome[]) {
   const totals = new Map<string, number>();
   dividends.forEach((dividend) => {

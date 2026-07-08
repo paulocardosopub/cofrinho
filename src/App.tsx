@@ -16,6 +16,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -30,20 +31,28 @@ import {
   BadgeDollarSign,
   Banknote,
   BarChart3,
+  Bitcoin,
   Bot,
+  Boxes,
+  Building2,
+  Car,
   CheckCircle2,
   ChevronRight,
   Circle,
+  CreditCard,
   Download,
   Edit3,
   FileSpreadsheet,
   Gauge,
+  Gamepad2,
+  GraduationCap,
+  HeartPulse,
+  Home,
   Landmark,
   LayoutDashboard,
   ListChecks,
   Loader2,
   LogOut,
-  Menu,
   Plus,
   ReceiptText,
   RefreshCw,
@@ -53,10 +62,14 @@ import {
   Sparkles,
   Tags,
   Trash2,
+  TrendingUp,
+  Tv,
   Upload,
+  Utensils,
   UserRound,
   WalletCards,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import "./App.css";
 import { AppDataProvider, useAppData } from "./hooks/useAppData";
@@ -80,6 +93,7 @@ import {
   calculateGoalProgress,
   getCategoryMap,
   getDividendsByMonth,
+  getInvestmentEvolution,
   getInvestmentAllocation,
   getMonthlyCashflow,
   getPortfolioEvolution,
@@ -99,6 +113,26 @@ const navigation = [
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { to: "/configuracoes", label: "Config", icon: Settings },
 ];
+
+const categoryIcons: Record<string, LucideIcon> = {
+  BadgeDollarSign,
+  Bitcoin,
+  Boxes,
+  Building2,
+  Car,
+  Circle,
+  CreditCard,
+  Gamepad2,
+  GraduationCap,
+  HeartPulse,
+  Home,
+  Landmark,
+  Tags,
+  TrendingUp,
+  Tv,
+  Utensils,
+  Wallet: WalletCards,
+};
 
 function App() {
   return (
@@ -156,14 +190,13 @@ function TechBackdrop() {
 
 function AppLayout() {
   const { user, signOut, data } = useAppData();
-  const [menuOpen, setMenuOpen] = useState(false);
   const summary = data ? calculateDashboard(data) : null;
 
   return (
     <>
       <TechBackdrop />
       <div className="app-shell">
-      <aside className={`sidebar ${menuOpen ? "is-open" : ""}`}>
+      <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">CF</div>
           <div>
@@ -173,7 +206,7 @@ function AppLayout() {
         </div>
         <nav className="side-nav" aria-label="Navegação principal">
           {navigation.map((item) => (
-            <NavLink key={item.to} to={item.to} onClick={() => setMenuOpen(false)}>
+            <NavLink key={item.to} to={item.to}>
               <item.icon size={18} />
               <span>{item.label}</span>
             </NavLink>
@@ -193,9 +226,6 @@ function AppLayout() {
 
       <main className="main-area">
         <header className="topbar">
-          <button className="icon-button mobile-only" type="button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu">
-            <Menu size={20} />
-          </button>
           <div>
             <span className="eyebrow tech-status">
               <ShieldCheck size={15} />
@@ -204,6 +234,14 @@ function AppLayout() {
             <h1>Cofrinho App</h1>
           </div>
           <div className="topbar-actions">
+            <div className="topbar-shortcuts" aria-label="Atalhos">
+              <NavLink className="icon-button" to="/relatorios" aria-label="Relatórios">
+                <BarChart3 size={17} />
+              </NavLink>
+              <NavLink className="icon-button" to="/configuracoes" aria-label="Configurações">
+                <Settings size={17} />
+              </NavLink>
+            </div>
             <div className="user-pill">
               <UserRound size={17} />
               <span>{user?.name}</span>
@@ -222,7 +260,6 @@ function AppLayout() {
         ))}
       </nav>
 
-      {menuOpen ? <button className="scrim" type="button" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /> : null}
       </div>
     </>
   );
@@ -378,8 +415,15 @@ function DashboardPage() {
   const categories = groupExpensesByCategory(data.transactions, data.categories, month);
   const cashflow = getMonthlyCashflow(data.transactions, 6);
   const allocation = getInvestmentAllocation(data.investments);
+  const investmentEvolution = getInvestmentEvolution(data.investments, data.dividends, 6);
   const fiiAssets = data.investments.filter((asset) => asset.assetType === "fii");
   const latest = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+  const latestQuote = Object.values(quotes).sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt))[0];
+  const quoteStatus = quotesLoading
+    ? "Buscando cotas..."
+    : latestQuote
+      ? `${latestQuote.source} · ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(latestQuote.fetchedAt))}`
+      : "Ainda não atualizado";
 
   async function refreshFiiQuotes() {
     if (!fiiAssets.length) return;
@@ -408,28 +452,25 @@ function DashboardPage() {
 
   return (
     <Page title="Painel Financeiro" action={<input className="month-input" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />}>
-      <div className="stats-grid">
-        <StatCard icon={WalletCards} label="Saldo atual" value={formatCurrency(summary.balance)} tone="green" />
-        <StatCard icon={Banknote} label="Receitas" value={formatCurrency(summary.income)} tone="blue" />
-        <StatCard icon={ReceiptText} label="Despesas" value={formatCurrency(summary.expenses)} tone="red" />
+      <div className="stats-grid dashboard-focus-stats">
         <StatCard icon={Gauge} label="Resultado do mês" value={formatCurrency(summary.result)} tone={summary.result >= 0 ? "green" : "red"} />
         <StatCard icon={Landmark} label="Patrimônio investido" value={formatCurrency(summary.current)} tone="purple" />
         <StatCard icon={TrendingIcon} label="Rentabilidade" value={formatPercent(summary.investmentReturnRate)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
       </div>
 
       <div className="dashboard-grid">
-        <Panel title="Receitas x despesas">
+        <Panel title="Evolução dos investimentos">
           <ChartBox>
             <ResponsiveContainer>
-              <BarChart data={cashflow}>
+              <ComposedChart data={investmentEvolution}>
                 <defs>
-                  <linearGradient id="incomeBar" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#5eead4" stopOpacity={0.95} />
-                    <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.45} />
+                  <linearGradient id="portfolioCurrentArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#5eead4" stopOpacity={0.62} />
+                    <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.06} />
                   </linearGradient>
-                  <linearGradient id="expenseBar" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#fb7185" stopOpacity={0.95} />
-                    <stop offset="100%" stopColor="#f97316" stopOpacity={0.42} />
+                  <linearGradient id="portfolioInvestedArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.34} />
+                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0.03} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -437,9 +478,10 @@ function DashboardPage() {
                 <YAxis tickFormatter={(value) => `R$${Number(value) / 1000}k`} />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
                 <Legend />
-                <Bar dataKey="receitas" fill="url(#incomeBar)" name="Receitas" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="despesas" fill="url(#expenseBar)" name="Despesas" radius={[6, 6, 0, 0]} />
-              </BarChart>
+                <Area type="monotone" dataKey="investido" stroke="#60a5fa" strokeWidth={2} fill="url(#portfolioInvestedArea)" name="Investido" />
+                <Area type="monotone" dataKey="atual" stroke="#5eead4" strokeWidth={3} fill="url(#portfolioCurrentArea)" name="Valor atual" />
+                <Line type="monotone" dataKey="proventos" stroke="#a78bfa" strokeWidth={2} dot={{ r: 3, fill: "#a78bfa" }} name="Proventos" />
+              </ComposedChart>
             </ResponsiveContainer>
           </ChartBox>
         </Panel>
@@ -473,10 +515,13 @@ function DashboardPage() {
             title="Radar de FIIs"
             mobileDefaultCollapsed
             action={(
-              <button className="secondary-button" type="button" onClick={() => void refreshFiiQuotes()} disabled={quotesLoading || !fiiAssets.length}>
-                {quotesLoading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
-                Atualizar cotas
-              </button>
+              <div className="quote-refresh-action">
+                <button className="secondary-button" type="button" onClick={() => void refreshFiiQuotes()} disabled={quotesLoading || !fiiAssets.length}>
+                  {quotesLoading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+                  Atualizar cotas
+                </button>
+                <small>{quoteStatus}</small>
+              </div>
             )}
           >
             <FiiRadarPanel assets={fiiAssets} quotes={quotes} loading={quotesLoading} error={quotesError} />
@@ -514,6 +559,8 @@ function TransactionsPage() {
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [filters, setFilters] = useState({ text: "", type: "all", category: "all", status: "all" });
+  const transactionSummary = calculateDashboard(data);
+  const transactionCashflow = getMonthlyCashflow(data.transactions, 6);
 
   const filtered = data.transactions
     .filter((transaction) => {
@@ -560,6 +607,38 @@ function TransactionsPage() {
         </div>
       }
     >
+      <div className="stats-grid compact">
+        <StatCard icon={WalletCards} label="Saldo atual" value={formatCurrency(transactionSummary.balance)} tone="green" />
+        <StatCard icon={Banknote} label="Receitas do mês" value={formatCurrency(transactionSummary.income)} tone="blue" />
+        <StatCard icon={ReceiptText} label="Despesas do mês" value={formatCurrency(transactionSummary.expenses)} tone="red" />
+      </div>
+
+      <Panel title="Receitas x despesas" mobileDefaultCollapsed>
+        <ChartBox>
+          <ResponsiveContainer>
+            <BarChart data={transactionCashflow}>
+              <defs>
+                <linearGradient id="transactionIncomeBar" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#5eead4" stopOpacity={0.95} />
+                  <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.45} />
+                </linearGradient>
+                <linearGradient id="transactionExpenseBar" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#fb7185" stopOpacity={0.95} />
+                  <stop offset="100%" stopColor="#f97316" stopOpacity={0.42} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" />
+              <YAxis tickFormatter={(value) => `R$${Number(value) / 1000}k`} />
+              <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+              <Legend />
+              <Bar dataKey="receitas" fill="url(#transactionIncomeBar)" name="Receitas" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="despesas" fill="url(#transactionExpenseBar)" name="Despesas" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartBox>
+      </Panel>
+
       <Panel>
         <div className="filter-grid">
           <label className="search-field">
@@ -687,12 +766,22 @@ function CategoriesPage() {
   const [editing, setEditing] = useState<Category | null>(null);
   const usage = useMemo(
     () =>
-      data.categories.map((category) => ({
-        ...category,
-        count: data.transactions.filter((transaction) => transaction.categoryId === category.id).length,
-        spent: data.transactions.filter((transaction) => transaction.categoryId === category.id && transaction.type === "expense").reduce((sum, transaction) => sum + transaction.amount, 0),
-      })),
-    [data.categories, data.transactions],
+      data.categories.map((category) => {
+        const transactions = data.transactions.filter((transaction) => transaction.categoryId === category.id);
+        const investments = data.investments.filter((asset) => sameCategory(asset.category, category.name));
+        const spent = transactions.filter((transaction) => transaction.type === "expense").reduce((sum, transaction) => sum + transaction.amount, 0);
+        const invested = investments.reduce((sum, asset) => sum + asset.investedValue, 0);
+        const current = investments.reduce((sum, asset) => sum + asset.currentValue, 0);
+        return {
+          ...category,
+          transactionCount: transactions.length,
+          investmentCount: investments.length,
+          spent,
+          invested,
+          current,
+        };
+      }),
+    [data.categories, data.investments, data.transactions],
   );
 
   function save(category: Category) {
@@ -711,10 +800,10 @@ function CategoriesPage() {
         {usage.map((category) => (
           <article className="category-list-row" key={category.id}>
             <div className="category-main">
-              <Pill color={category.color}>{category.icon}</Pill>
+              <Pill color={category.color}><CategoryIcon name={category.icon} /></Pill>
               <div>
                 <strong>{category.name}</strong>
-                <span>{categoryTypeLabel(category.type)} · {category.count} transação(ões)</span>
+                <span>{categoryTypeLabel(category.type)} · {formatCategoryUsage(category.transactionCount, category.investmentCount)}</span>
               </div>
             </div>
             <div className="category-metric">
@@ -722,11 +811,15 @@ function CategoriesPage() {
               <strong>{formatCurrency(category.spent)}</strong>
             </div>
             <div className="category-metric">
-              <span>Limite</span>
-              <strong>{category.monthlyBudget ? formatCurrency(category.monthlyBudget) : "Sem limite"}</strong>
+              <span>Investido</span>
+              <strong>{category.investmentCount ? formatCurrency(category.invested) : "Sem ativos"}</strong>
+            </div>
+            <div className="category-metric">
+              <span>Atual</span>
+              <strong className={category.current >= category.invested ? "amount-positive" : "amount-negative"}>{category.investmentCount ? formatCurrency(category.current) : category.monthlyBudget ? formatCurrency(category.monthlyBudget) : "Sem limite"}</strong>
             </div>
             <div className="category-progress" aria-hidden="true">
-              <span style={{ width: `${category.monthlyBudget ? Math.min((category.spent / category.monthlyBudget) * 100, 100) : 0}%`, background: category.color }} />
+              <span style={{ width: `${category.investmentCount && category.invested ? Math.min((category.current / category.invested) * 100, 100) : category.monthlyBudget ? Math.min((category.spent / category.monthlyBudget) * 100, 100) : 0}%`, background: category.color }} />
             </div>
             <div className="row-actions">
               <button className="icon-button" type="button" onClick={() => setEditing(category)} aria-label={`Editar ${category.name}`}><Edit3 size={16} /></button>
@@ -735,7 +828,8 @@ function CategoriesPage() {
                 type="button"
                 aria-label={`Excluir ${category.name}`}
                 onClick={() => {
-                  const message = category.count ? "Categoria em uso. As transações serão realocadas para Sem categoria. Continuar?" : "Excluir categoria?";
+                  const inUse = category.transactionCount + category.investmentCount;
+                  const message = inUse ? "Categoria em uso. Transações serão realocadas para Sem categoria; investimentos continuam com o nome salvo. Continuar?" : "Excluir categoria?";
                   if (window.confirm(message)) deleteCategory(category.id);
                 }}
               >
@@ -760,6 +854,7 @@ function InvestmentsPage() {
   const summary = calculateDashboard(data);
   const allocation = getInvestmentAllocation(data.investments, tab === "categorias" ? "category" : "assetType");
   const fiiAssets = data.investments.filter((asset) => asset.assetType === "fii");
+  const nonFiiAssets = data.investments.filter((asset) => asset.assetType !== "fii");
   const portfolio = getPortfolioEvolution(data.investments, data.dividends);
 
   function save(asset: InvestmentAsset) {
@@ -825,6 +920,9 @@ function InvestmentsPage() {
       {tab === "categorias" ? (
         <div className="two-column">
           <Panel title="Distribuição por categoria">{allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Sem ativos" text="Cadastre ativos para ver a distribuição." />}</Panel>
+          <Panel title="Atualização por categoria" action={<Pill>{nonFiiAssets.length} ativo(s)</Pill>}>
+            {nonFiiAssets.length ? <InvestmentCategoryQuickUpdate assets={nonFiiAssets} onUpdate={updateInvestment} /> : <EmptyState title="Nenhum investimento fora de FIIs" text="CDBs, renda fixa, ações, fundos e outros aparecerão aqui para conferência." />}
+          </Panel>
           <Panel title="Resumo por categoria">
             <div className="stack-list">
               {allocation.map((item) => (
@@ -1606,6 +1704,8 @@ function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentA
 
 function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
   const [analysis, setAnalysis] = useState<InvestmentImageAnalysis | null>(null);
+  const [preview, setPreview] = useState<InvestmentUpdatePreview[]>([]);
+  const [confirmed, setConfirmed] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -1616,13 +1716,12 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
     setLoading(true);
     setError("");
     setAnalysis(null);
+    setPreview([]);
+    setConfirmed("");
     try {
       const result = await analyzeInvestmentScreenshots(files, assets);
-      const applied = applyInvestmentUpdates(result, assets, onUpdate);
-      setAnalysis({
-        ...result,
-        summary: applied ? `${result.summary} ${applied} ativo(s) atualizado(s).` : result.summary,
-      });
+      setAnalysis(result);
+      setPreview(buildInvestmentUpdatePreview(result, assets));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível ler o print agora.");
     } finally {
@@ -1643,32 +1742,65 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
       </label>
       {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Lendo print com IA...</div> : null}
       {error ? <div className="inline-alert warning-alert">{error}</div> : null}
+      {confirmed ? <div className="inline-alert">{confirmed}</div> : null}
       {analysis ? (
         <div className="ai-result-list">
           <strong>{analysis.summary}</strong>
-          {analysis.updates.map((item) => (
-            <div className="ai-result-row" key={`${item.ticker}-${item.sourceText}`}>
+          {preview.length ? preview.map((item) => (
+            <div className="ai-result-row" key={`${item.asset.id}-${item.sourceText}`}>
               <div>
-                <strong>{normalizeTicker(item.ticker) || item.name || "Ativo identificado"}</strong>
+                <strong>{item.label}</strong>
                 <span>{item.sourceText}</span>
+              </div>
+              <div className="ai-result-values">
+                <span>{formatCurrency(item.previousValue)} → {formatCurrency(item.nextValue)}</span>
+                <strong className={item.delta >= 0 ? "amount-positive" : "amount-negative"}>{item.delta >= 0 ? "+" : ""}{formatCurrency(item.delta)}</strong>
               </div>
               <span>{Math.round(item.confidence * 100)}%</span>
             </div>
-          ))}
+          )) : <span className="muted-inline">Nenhuma atualização com confiança suficiente para aplicar.</span>}
           {analysis.unmatched.length ? <span className="muted-inline">Sem ativo cadastrado: {analysis.unmatched.join(", ")}</span> : null}
+          {preview.length ? (
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                applyInvestmentPreviewUpdates(preview, onUpdate);
+                setConfirmed(`${preview.length} atualização(ões) confirmada(s).`);
+                setPreview([]);
+              }}
+            >
+              <CheckCircle2 size={17} />
+              Confirmar atualizações
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function applyInvestmentUpdates(result: InvestmentImageAnalysis, assets: InvestmentAsset[], onUpdate: (asset: InvestmentAsset) => void) {
-  let applied = 0;
-  result.updates.forEach((update) => {
-    if (update.confidence < 0.55) return;
+interface InvestmentUpdatePreview {
+  asset: InvestmentAsset;
+  label: string;
+  sourceText: string;
+  confidence: number;
+  quantity: number;
+  averagePrice: number;
+  currentPrice: number;
+  currentValue: number;
+  dividends: number;
+  previousValue: number;
+  nextValue: number;
+  delta: number;
+}
+
+function buildInvestmentUpdatePreview(result: InvestmentImageAnalysis, assets: InvestmentAsset[]) {
+  return result.updates.flatMap((update) => {
+    if (update.confidence < 0.55) return [];
     const ticker = normalizeTicker(update.ticker);
     const asset = assets.find((item) => normalizeTicker(item.ticker) === ticker);
-    if (!asset) return;
+    if (!asset) return [];
 
     const quantity = finiteOr(update.quantity, asset.quantity);
     const averagePrice = finiteOr(update.averagePrice, asset.averagePrice);
@@ -1677,18 +1809,35 @@ function applyInvestmentUpdates(result: InvestmentImageAnalysis, assets: Investm
     const currentValue = finiteOr(update.currentValue, quantity * currentPrice);
     const dividends = finiteOr(update.dividends, asset.dividends);
 
-    onUpdate({
-      ...asset,
+    return [{
+      asset,
+      label: normalizeTicker(asset.ticker) || asset.name,
+      sourceText: update.sourceText,
+      confidence: update.confidence,
       quantity,
       averagePrice,
       currentPrice,
       currentValue,
       dividends,
-      notes: [asset.notes, `Atualizado por print com IA: ${update.sourceText}`].filter(Boolean).join("\n"),
-    });
-    applied += 1;
+      previousValue: asset.currentValue,
+      nextValue: currentValue,
+      delta: currentValue - asset.currentValue,
+    }];
   });
-  return applied;
+}
+
+function applyInvestmentPreviewUpdates(preview: InvestmentUpdatePreview[], onUpdate: (asset: InvestmentAsset) => void) {
+  preview.forEach((item) => {
+    onUpdate({
+      ...item.asset,
+      quantity: item.quantity,
+      averagePrice: item.averagePrice,
+      currentPrice: item.currentPrice,
+      currentValue: item.currentValue,
+      dividends: item.dividends,
+      notes: [item.asset.notes, `Atualizado por print com IA: ${item.sourceText}`].filter(Boolean).join("\n"),
+    });
+  });
 }
 
 function finiteOr(value: number | null | undefined, fallback: number) {
@@ -1709,6 +1858,50 @@ function FiiQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpd
           <div><strong>{asset.ticker}</strong><span>{asset.quantity} cotas · PM {formatCurrency(asset.averagePrice)}</span></div>
           <input type="number" step="0.01" value={drafts[asset.id] ?? asset.currentPrice} onChange={(event) => setDrafts({ ...drafts, [asset.id]: Number(event.target.value) })} />
           <button className="secondary-button" type="button" onClick={() => onUpdate({ ...asset, currentPrice: drafts[asset.id] ?? asset.currentPrice, currentValue: asset.quantity * (drafts[asset.id] ?? asset.currentPrice) })}>Salvar</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InvestmentCategoryQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
+  const [drafts, setDrafts] = useState<Record<string, number>>(() => Object.fromEntries(assets.map((asset) => [asset.id, asset.currentValue])));
+  const groups = groupAssetsByCategory(assets);
+
+  return (
+    <div className="category-update-list">
+      {groups.map((group) => (
+        <div className="category-update-group" key={group.name}>
+          <div className="category-update-header">
+            <strong>{group.name}</strong>
+            <span>{group.assets.length} ativo(s) · {formatCurrency(group.assets.reduce((sum, asset) => sum + asset.currentValue, 0))}</span>
+          </div>
+          <div className="stack-list">
+            {group.assets.map((asset) => {
+              const nextValue = drafts[asset.id] ?? asset.currentValue;
+              const delta = nextValue - asset.currentValue;
+              const result = nextValue - asset.investedValue;
+              return (
+                <div className="list-row investment-update-row" key={asset.id}>
+                  <div>
+                    <strong>{asset.name}</strong>
+                    <span>{assetTypeLabel(asset.assetType)} · {asset.broker || "Instituição não informada"} · aplicação {formatDate(asset.buyDate)}</span>
+                  </div>
+                  <div className="update-current">
+                    <span>Atual salvo</span>
+                    <strong>{formatCurrency(asset.currentValue)}</strong>
+                  </div>
+                  <input type="number" step="0.01" value={nextValue} onChange={(event) => setDrafts({ ...drafts, [asset.id]: Number(event.target.value) })} />
+                  <div className="update-current">
+                    <span>Variação</span>
+                    <strong className={delta >= 0 ? "amount-positive" : "amount-negative"}>{delta >= 0 ? "+" : ""}{formatCurrency(delta)}</strong>
+                    <small className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatPercent(asset.investedValue > 0 ? result / asset.investedValue : 0)}</small>
+                  </div>
+                  <button className="secondary-button" type="button" onClick={() => onUpdate({ ...asset, currentValue: nextValue, currentPrice: nextValue, quantity: asset.quantity || 1 })}>Salvar</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ))}
     </div>
@@ -1876,6 +2069,41 @@ function useRequiredData() {
   const context = useAppData();
   if (!context.data || !context.user) throw new Error("Dados indisponíveis.");
   return { ...context, data: context.data, user: context.user };
+}
+
+function CategoryIcon({ name }: { name?: string }) {
+  const Icon = categoryIcons[name || ""] ?? Circle;
+  return <Icon size={15} />;
+}
+
+function normalizeCategoryName(name?: string) {
+  return (name ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+}
+
+function sameCategory(left?: string, right?: string) {
+  return normalizeCategoryName(left) === normalizeCategoryName(right);
+}
+
+function formatCategoryUsage(transactions: number, investments: number) {
+  const parts = [];
+  if (transactions) parts.push(`${transactions} transação(ões)`);
+  if (investments) parts.push(`${investments} investimento(s)`);
+  return parts.length ? parts.join(" · ") : "sem uso";
+}
+
+function groupAssetsByCategory(assets: InvestmentAsset[]) {
+  const groups = new Map<string, InvestmentAsset[]>();
+  assets.forEach((asset) => {
+    const key = asset.category?.trim() || "Sem categoria";
+    groups.set(key, [...(groups.get(key) ?? []), asset]);
+  });
+  return [...groups.entries()]
+    .map(([name, groupedAssets]) => ({ name, assets: groupedAssets.sort((a, b) => a.name.localeCompare(b.name, "pt-BR")) }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 
 function createEmptyTransaction(type: TransactionType, accountId = "acc-carteira-principal"): Transaction {
