@@ -1,4 +1,5 @@
 import {
+  createDemoUserData,
   createDefaultUserData,
   DEFAULT_ACCOUNT_ID,
   DEMO_USER_ID,
@@ -104,7 +105,7 @@ export function ensureDemoUser() {
 
   saveUsers([demoUser, ...existing]);
   if (!localStorage.getItem(dataKey(DEMO_USER_ID))) {
-    saveUserData(DEMO_USER_ID, createDefaultUserData());
+    saveUserData(DEMO_USER_ID, createDemoUserData());
   }
 }
 

@@ -236,10 +236,10 @@ function AppLayout() {
 function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" }) {
   const { signIn, signInDemo, signUp, forgotPassword, changePassword, user, supabaseReady } = useAppData();
   const navigate = useNavigate();
-  const [name, setName] = useState("Paulo Cardoso");
-  const [email, setEmail] = useState("paulo@cofrinho.local");
-  const [password, setPassword] = useState("demo123");
-  const [confirm, setConfirm] = useState("demo123");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [message, setMessage] = useState("");
 
   if (user) return <Navigate to="/" replace />;
@@ -275,10 +275,17 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
   }
 
   const title = {
-    login: "Entrar no Cofrinho App",
-    register: "Criar sua conta",
+    login: "Entrar",
+    register: "Criar usuário",
     forgot: "Recuperar senha",
     reset: "Definir nova senha",
+  }[mode];
+
+  const subtitle = {
+    login: "Acesse sua carteira salva no Supabase ou use o modo demo para testar.",
+    register: "Comece com uma conta vazia, pronta para receber seus próprios dados.",
+    forgot: "Informe seu e-mail para receber as instruções de recuperação.",
+    reset: "Escolha uma nova senha para voltar ao Cofrinho.",
   }[mode];
 
   return (
@@ -297,27 +304,22 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
             <div className="auth-copy">
               <span className="eyebrow tech-status">
                 <ShieldCheck size={15} />
-                Sem conexão bancária obrigatória
+                Conta salva no Supabase
               </span>
               <h1>{title}</h1>
-              <p>Entre para acompanhar carteira, FIIs, metas e receitas com atualização por print e cotações online.</p>
+              <p>{subtitle}</p>
             </div>
-            <div className="auth-mini-grid" aria-hidden="true">
-              <div>
-                <WalletCards size={18} />
-                <span>Saldo</span>
-                <strong>R$ 6,2k</strong>
+            <div className="auth-orbit" aria-hidden="true">
+              <div className="auth-orbit-core">
+                <ShieldCheck size={28} />
               </div>
-              <div>
-                <Landmark size={18} />
-                <span>Investido</span>
-                <strong>R$ 41,6k</strong>
-              </div>
-              <div>
-                <Sparkles size={18} />
-                <span>IA por print</span>
-                <strong>Pronta</strong>
-              </div>
+              <span />
+              <span />
+            </div>
+            <div className="auth-benefits">
+              <span><ShieldCheck size={16} />Dados sincronizados</span>
+              <span><Upload size={16} />Importação por print</span>
+              <span><Sparkles size={16} />Carteira inicial vazia</span>
             </div>
           </div>
 
@@ -325,30 +327,30 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
             <form className="form-grid" onSubmit={submit}>
               {mode === "register" ? (
                 <label>
-                  Nome
-                  <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Paulo Cardoso" />
+                  Usuário
+                  <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Como quer ser chamado?" autoComplete="name" />
                 </label>
               ) : null}
               <label>
                 E-mail
-                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="voce@email.com" />
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="seu@email.com" autoComplete="email" />
               </label>
               {mode !== "forgot" ? (
                 <label>
                   Senha
-                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mínimo 6 caracteres" />
+                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mínimo 6 caracteres" autoComplete={mode === "login" ? "current-password" : "new-password"} />
                 </label>
               ) : null}
               {mode === "register" ? (
                 <label>
                   Confirmar senha
-                  <input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                  <input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} placeholder="Repita sua senha" autoComplete="new-password" />
                 </label>
               ) : null}
               {message ? <div className="inline-alert span-2">{message}</div> : null}
               <button className="primary-button" type="submit">
                 <ShieldCheck size={18} />
-                {mode === "login" ? "Entrar" : mode === "register" ? "Criar conta" : mode === "forgot" ? "Enviar instruções" : "Salvar senha"}
+                {mode === "login" ? "Entrar" : mode === "register" ? "Criar usuário" : mode === "forgot" ? "Enviar instruções" : "Salvar senha"}
               </button>
               {mode === "login" ? (
                 <button className="secondary-button" type="button" onClick={signInDemo}>
@@ -359,7 +361,7 @@ function AuthPage({ mode }: { mode: "login" | "register" | "forgot" | "reset" })
             </form>
             <div className="auth-links">
               {mode !== "login" ? <NavLink to="/login">Voltar ao login</NavLink> : <NavLink to="/forgot-password">Esqueci minha senha</NavLink>}
-              {mode !== "register" ? <NavLink to="/register">Criar conta</NavLink> : null}
+              {mode !== "register" ? <NavLink to="/register">Criar usuário</NavLink> : null}
             </div>
           </div>
         </section>

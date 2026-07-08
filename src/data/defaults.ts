@@ -319,6 +319,25 @@ export const defaultImportBatches: ImportBatch[] = [];
 
 export function createDefaultUserData(): UserData {
   return {
+    accounts: [
+      { id: DEFAULT_ACCOUNT_ID, name: "Carteira principal", type: "checking", balance: 0, color: "#0f766e" },
+      { id: BROKER_ACCOUNT_ID, name: "Corretora", type: "broker", balance: 0, color: "#2563eb" },
+    ],
+    categories: [{ id: UNCATEGORIZED_ID, name: "Sem categoria", type: "both", color: "#64748b", icon: "Circle" }],
+    transactions: [],
+    goals: [],
+    investments: [],
+    operations: structuredClone(defaultOperations),
+    dividends: [],
+    importBatches: structuredClone(defaultImportBatches),
+    insights: [],
+    chat: [],
+    settings: { ...structuredClone(defaultSettings), defaultBroker: "" },
+  };
+}
+
+export function createDemoUserData(): UserData {
+  return {
     accounts: structuredClone(defaultAccounts),
     categories: structuredClone(defaultCategories),
     transactions: structuredClone(defaultTransactions),
