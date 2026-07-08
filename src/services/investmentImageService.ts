@@ -85,7 +85,11 @@ async function analyzeWithLocalOcr(files: File[]): Promise<InvestmentImageAnalys
       texts.push(data.text);
     }
 
-    const updates = parseCdbCardsFromText(texts.join("\n"));
+    const ocrText = texts.join("\n");
+    const updates = dedupeInvestmentUpdates([
+      ...parseCdbCardsFromText(ocrText),
+      ...parseFiiCardsFromText(ocrText),
+    ]);
     return {
       summary: updates.length ? `${updates.length} investimento(s) identificado(s) por OCR local.` : "Nenhum investimento identificado por OCR local.",
       updates,
@@ -97,11 +101,7 @@ async function analyzeWithLocalOcr(files: File[]): Promise<InvestmentImageAnalys
 }
 
 function parseCdbCardsFromText(text: string): InvestmentImageUpdate[] {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-
+  const lines = textToLines(text);
   const updates: InvestmentImageUpdate[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const nameLine = cleanInvestmentName(lines[index]);
@@ -131,6 +131,78 @@ function parseCdbCardsFromText(text: string): InvestmentImageUpdate[] {
   return dedupeInvestmentUpdates(updates);
 }
 
+function parseFiiCardsFromText(text: string): InvestmentImageUpdate[] {
+  const lines = textToLines(text);
+  const updates: InvestmentImageUpdate[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const tickers = lines[index].toUpperCase().match(/\b[A-Z]{4}\d{2}[A-Z]?\b/g) ?? [];
+    for (const ticker of tickers) {
+      const windowLines = lines.slice(Math.max(0, index - 2), index + 12);
+      const quantity = findNumberByLabels(windowLines, ["quantidade", "qtd", "cotas"]);
+      const averagePrice = findCurrencyByLabels(windowLines, ["preço médio", "preco medio", "pm"]);
+      const currentPrice = findCurrencyByLabels(windowLines, ["preço atual", "preco atual", "cota atual", "cotação", "cotacao"]);
+      const currentValue =
+        findCurrencyByLabels(windowLines, ["valor atual", "valor de mercado", "saldo bruto", "saldo atual", "total"]) ??
+        (quantity && currentPrice ? quantity * currentPrice : null);
+      const inferredCurrentPrice = currentPrice ?? (quantity && currentValue ? currentValue / quantity : null);
+      const dividends = findCurrencyByLabels(windowLines, ["proventos", "dividendos", "rendimento", "rendimentos"]);
+      if (!currentValue && !inferredCurrentPrice && !quantity) continue;
+
+      updates.push({
+        ticker,
+        name: findNameNearTicker(windowLines, ticker),
+        assetType: "fii",
+        quantity,
+        averagePrice,
+        currentPrice: inferredCurrentPrice,
+        currentValue,
+        dividends,
+        confidence: currentValue || inferredCurrentPrice ? 0.84 : 0.68,
+        sourceText: windowLines.join(" | "),
+      });
+    }
+  }
+
+  return dedupeInvestmentUpdates(updates);
+}
+
+function textToLines(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function findNameNearTicker(lines: string[], ticker: string) {
+  const candidate = lines.find((line) => line.includes(ticker) && normalizeText(line) !== normalizeText(ticker)) ?? "";
+  return candidate.replace(ticker, "").replace(/\s+/g, " ").trim() || null;
+}
+
+function findCurrencyByLabels(lines: string[], labels: string[]) {
+  const line = findLineByLabels(lines, labels);
+  return parseCurrencyFromText(line) ?? parseNumberAfterAnyLabel(line, labels);
+}
+
+function findNumberByLabels(lines: string[], labels: string[]) {
+  const line = findLineByLabels(lines, labels);
+  return parseNumberAfterAnyLabel(line, labels);
+}
+
+function findLineByLabels(lines: string[], labels: string[]) {
+  return lines.find((line) => labels.some((label) => normalizeText(line).includes(normalizeText(label))));
+}
+
+function parseNumberAfterAnyLabel(line: string | undefined, labels: string[]) {
+  if (!line) return null;
+  const normalizedLine = normalizeText(line);
+  const label = labels.find((item) => normalizedLine.includes(normalizeText(item)));
+  const searchable = label ? line.slice(Math.max(0, normalizedLine.indexOf(normalizeText(label)))) : line;
+  const raw = searchable.match(/([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{1,4}|[0-9]+,[0-9]{1,4}|[0-9]{1,6})/)?.[1];
+  if (!raw) return null;
+  const value = Number(raw.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(value) ? value : null;
+}
+
 function cleanInvestmentName(line: string) {
   const cleaned = line
     .replace(/^[|Il1]\s*c[do]b\s*$/i, "")
@@ -152,7 +224,7 @@ function parseCurrencyFromText(line?: string) {
 function dedupeInvestmentUpdates(updates: InvestmentImageUpdate[]) {
   const seen = new Set<string>();
   return updates.filter((update) => {
-    const key = `${normalizeText(update.name || "")}:${update.currentValue}`;
+    const key = `${normalizeTicker(update.ticker)}:${normalizeText(update.name || "")}:${update.currentValue}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
