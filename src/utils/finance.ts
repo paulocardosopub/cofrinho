@@ -145,12 +145,12 @@ export function getTopCategory(transactions: Transaction[], categories: Category
 
 export function assetTypeLabel(type: InvestmentAsset["assetType"]) {
   const labels: Record<InvestmentAsset["assetType"], string> = {
-    fii: "Fundo Imobiliário",
+    fii: "Fundo Imobiliário (FII)",
     stock: "Ações",
-    fixed_income: "Renda fixa",
+    fixed_income: "Renda Fixa",
     cdb: "CDB",
-    crypto: "Crypto",
-    fund: "Fundo",
+    crypto: "Criptomoedas",
+    fund: "Fundo de Investimento",
     treasury: "Tesouro Direto",
     other: "Outro",
   };

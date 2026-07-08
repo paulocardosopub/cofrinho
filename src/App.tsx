@@ -777,7 +777,7 @@ function InvestmentsPage() {
   }
 
   return (
-    <Page title="Investimentos" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyInvestment())}><Plus size={17} />Novo ativo</button>}>
+    <Page title="Investimentos" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyInvestment())}><Plus size={17} />Novo investimento</button>}>
       <div className="stats-grid compact">
         <StatCard icon={Landmark} label="Total investido" value={formatCurrency(summary.invested)} tone="blue" />
         <StatCard icon={BadgeDollarSign} label="Valor atual" value={formatCurrency(summary.current)} tone="green" />
@@ -842,7 +842,7 @@ function InvestmentsPage() {
           </Panel>
         </div>
       ) : null}
-      <Modal title={editing?.id ? "Editar ativo" : "Novo ativo"} open={Boolean(editing)} onClose={() => setEditing(null)}>
+      <Modal title={editing && editing.id !== "new" ? "Editar investimento" : "Adicionar Investimento"} open={Boolean(editing)} onClose={() => setEditing(null)}>
         {editing ? <InvestmentForm asset={editing} onSave={save} /> : null}
       </Modal>
     </Page>
@@ -1276,37 +1276,129 @@ function CategoryForm({ category, onSave }: { category: Category; onSave: (categ
 
 function InvestmentForm({ asset, onSave }: { asset: InvestmentAsset; onSave: (asset: InvestmentAsset) => void }) {
   const [draft, setDraft] = useState(asset);
-  const investedValue = Number(draft.quantity) * Number(draft.averagePrice);
-  const currentValue = Number(draft.quantity) * Number(draft.currentPrice);
+  const isFii = draft.assetType === "fii";
+  const investedValue = isFii
+    ? Number(draft.investedValue) || Number(draft.quantity) * Number(draft.averagePrice)
+    : Number(draft.investedValue) || Number(draft.averagePrice);
+  const currentValue = isFii
+    ? Number(draft.currentValue) || (Number(draft.currentPrice) > 0 ? Number(draft.quantity) * Number(draft.currentPrice) : investedValue)
+    : Number(draft.currentValue) || investedValue;
+
+  function updateType(assetType: AssetType) {
+    setDraft((current) => {
+      if (assetType === "fii") {
+        return {
+          ...current,
+          assetType,
+          category: current.category,
+        };
+      }
+
+      const fixedInvested = Number(current.investedValue) || Number(current.quantity) * Number(current.averagePrice);
+      const fixedCurrent = Number(current.currentValue) || Number(current.quantity) * Number(current.currentPrice) || fixedInvested;
+      return {
+        ...current,
+        assetType,
+        quantity: 1,
+        averagePrice: fixedInvested,
+        currentPrice: fixedCurrent,
+        investedValue: fixedInvested,
+        currentValue: fixedCurrent,
+        dividends: 0,
+        dividendYield: undefined,
+        category: current.category,
+      };
+    });
+  }
+
+  function updateFiiQuantity(quantity: number) {
+    const nextInvested = quantity * Number(draft.averagePrice);
+    const nextCurrent = Number(draft.currentPrice) > 0 ? quantity * Number(draft.currentPrice) : nextInvested;
+    setDraft({ ...draft, quantity, investedValue: nextInvested, currentValue: nextCurrent });
+  }
+
+  function updateFiiAveragePrice(averagePrice: number) {
+    const nextInvested = Number(draft.quantity) * averagePrice;
+    const nextCurrent = Number(draft.currentPrice) > 0 ? Number(draft.quantity) * Number(draft.currentPrice) : nextInvested;
+    setDraft({ ...draft, averagePrice, investedValue: nextInvested, currentValue: nextCurrent });
+  }
+
+  function updateFiiInvestedValue(nextInvested: number) {
+    const quantity = Number(draft.quantity);
+    setDraft({
+      ...draft,
+      investedValue: nextInvested,
+      currentValue: Number(draft.currentValue) || nextInvested,
+      averagePrice: quantity > 0 ? nextInvested / quantity : draft.averagePrice,
+    });
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const normalizedInvested = Math.max(0, investedValue);
+    const normalizedCurrent = Math.max(0, currentValue || normalizedInvested);
+    const quantity = isFii ? Math.max(0, Number(draft.quantity)) : 1;
+    const averagePrice = isFii ? Math.max(0, Number(draft.averagePrice)) : normalizedInvested;
+    const currentPrice = isFii
+      ? Math.max(0, Number(draft.currentPrice) || (quantity > 0 ? normalizedCurrent / quantity : averagePrice))
+      : normalizedCurrent;
+
+    onSave({
+      ...draft,
+      ticker: isFii ? normalizeTicker(draft.ticker) : draft.ticker.trim() || draft.name.trim(),
+      name: draft.name.trim(),
+      quantity,
+      averagePrice,
+      currentPrice,
+      investedValue: normalizedInvested,
+      currentValue: normalizedCurrent,
+      dividends: isFii ? Number(draft.dividends) || 0 : 0,
+      dividendYield: isFii ? draft.dividendYield : undefined,
+      maturityDate: isFii ? undefined : draft.maturityDate || undefined,
+      broker: draft.broker?.trim(),
+      category: draft.category?.trim(),
+      notes: draft.notes?.trim(),
+    });
+  }
 
   return (
-    <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave({ ...draft, investedValue, currentValue }); }}>
+    <form className="form-grid" onSubmit={submit}>
       <label>Tipo
-        <select value={draft.assetType} onChange={(event) => setDraft({ ...draft, assetType: event.target.value as AssetType })}>
-          <option value="fii">FII</option>
-          <option value="cdb">CDB</option>
-          <option value="fixed_income">Renda fixa</option>
+        <select value={draft.assetType} onChange={(event) => updateType(event.target.value as AssetType)}>
+          <option value="fixed_income">Renda Fixa</option>
+          <option value="fund">Fundo de Investimento</option>
+          <option value="fii">Fundo Imobiliário (FII)</option>
           <option value="stock">Ações</option>
-          <option value="crypto">Crypto</option>
           <option value="treasury">Tesouro Direto</option>
-          <option value="fund">Fundo</option>
+          <option value="cdb">CDB</option>
+          <option value="crypto">Criptomoedas</option>
           <option value="other">Outro</option>
         </select>
       </label>
-      <label>Ticker<input value={draft.ticker} onChange={(event) => setDraft({ ...draft, ticker: event.target.value.toUpperCase() })} required /></label>
-      <label>Nome<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label>
-      <label>Quantidade<input type="number" step="0.000001" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: Number(event.target.value) })} /></label>
-      <label>Preço médio<input type="number" step="0.01" value={draft.averagePrice} onChange={(event) => setDraft({ ...draft, averagePrice: Number(event.target.value) })} /></label>
-      <label>Preço atual<input type="number" step="0.01" value={draft.currentPrice} onChange={(event) => setDraft({ ...draft, currentPrice: Number(event.target.value) })} /></label>
-      <label>Dividendos/proventos<input type="number" step="0.01" value={draft.dividends} onChange={(event) => setDraft({ ...draft, dividends: Number(event.target.value) })} /></label>
-      <label>Dividend yield (%)<input type="number" step="0.01" value={draft.dividendYield ?? ""} onChange={(event) => setDraft({ ...draft, dividendYield: Number(event.target.value) || undefined })} /></label>
-      <label>Data de compra<input type="date" value={draft.buyDate} onChange={(event) => setDraft({ ...draft, buyDate: event.target.value })} /></label>
-      <label>Vencimento<input type="date" value={draft.maturityDate ?? ""} onChange={(event) => setDraft({ ...draft, maturityDate: event.target.value })} /></label>
-      <label>Corretora<input value={draft.broker ?? ""} onChange={(event) => setDraft({ ...draft, broker: event.target.value })} /></label>
-      <label>Categoria<input value={draft.category ?? ""} onChange={(event) => setDraft({ ...draft, category: event.target.value })} /></label>
+      {isFii ? (
+        <>
+          <label>Ticker do FII <small>(código B3, ex: KNRI11)</small><input value={draft.ticker} onChange={(event) => setDraft({ ...draft, ticker: event.target.value.toUpperCase() })} placeholder="Ex: MXRF11, KNRI11, HGLG11" required /></label>
+          <label>Nome / Descrição<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Ex: Kinea Reit" required /></label>
+          <label>Qtd. de Cotas<input type="number" step="1" value={draft.quantity} onChange={(event) => updateFiiQuantity(Number(event.target.value))} /></label>
+          <label>Preço Médio (R$)<input type="number" step="0.01" value={draft.averagePrice} onChange={(event) => updateFiiAveragePrice(Number(event.target.value))} /></label>
+          <label className="span-2">Valor Investido Total (R$) <small>ou preencha cotas + preço acima</small><input type="number" step="0.01" value={investedValue} onChange={(event) => updateFiiInvestedValue(Number(event.target.value))} /></label>
+          <label>Data de Compra<input type="date" value={draft.buyDate} onChange={(event) => setDraft({ ...draft, buyDate: event.target.value })} /></label>
+          <label>Corretora<input value={draft.broker ?? ""} onChange={(event) => setDraft({ ...draft, broker: event.target.value })} placeholder="Ex: XP, BTG, Clear" /></label>
+        </>
+      ) : (
+        <>
+          <label className="span-2">Nome<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Ex: Tesouro IPCA 2026" required /></label>
+          <label>Valor Investido (R$)<input type="number" step="0.01" value={investedValue} onChange={(event) => setDraft({ ...draft, investedValue: Number(event.target.value), averagePrice: Number(event.target.value) })} /></label>
+          <label>Valor Atual (R$)<input type="number" step="0.01" value={draft.currentValue || ""} onChange={(event) => setDraft({ ...draft, currentValue: Number(event.target.value), currentPrice: Number(event.target.value) })} placeholder="Opcional" /></label>
+          <label>Data de Aplicação<input type="date" value={draft.buyDate} onChange={(event) => setDraft({ ...draft, buyDate: event.target.value })} /></label>
+          <label>Data de Vencimento<input type="date" value={draft.maturityDate ?? ""} onChange={(event) => setDraft({ ...draft, maturityDate: event.target.value })} /></label>
+          <label className="span-2">Instituição<input value={draft.broker ?? ""} onChange={(event) => setDraft({ ...draft, broker: event.target.value })} placeholder="Ex: Nubank, XP, BTG..." /></label>
+        </>
+      )}
+      <label className="span-2">Categoria<input value={draft.category ?? ""} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="Selecione (opcional)" /></label>
       <div className="span-2 inline-alert">Investido: {formatCurrency(investedValue)} · Atual: {formatCurrency(currentValue)}</div>
-      <label className="span-2">Observações<textarea value={draft.notes ?? ""} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
-      <button className="primary-button span-2" type="submit"><CheckCircle2 size={17} />Salvar ativo</button>
+      <label className="span-2">Observações<textarea value={draft.notes ?? ""} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Notas adicionais" /></label>
+      <button className="primary-button span-2" type="submit"><CheckCircle2 size={17} />{isFii ? "Cadastrar FII" : "Salvar investimento"}</button>
     </form>
   );
 }
@@ -1344,19 +1436,30 @@ function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset
       <div className="investment-mobile-list">
         {assets.map((asset) => {
           const result = asset.currentValue + asset.dividends - asset.investedValue;
+          const title = asset.assetType === "fii" && asset.ticker ? normalizeTicker(asset.ticker) : asset.name || asset.ticker;
+          const subtitle = asset.assetType === "fii" ? asset.name : [asset.broker, asset.category].filter(Boolean).join(" · ");
+          const metrics = asset.assetType === "fii"
+            ? [
+              { label: "Qtd.", value: String(asset.quantity) },
+              { label: "PM", value: formatCurrency(asset.averagePrice) },
+              { label: "Cota", value: formatCurrency(asset.currentPrice) },
+            ]
+            : [
+              { label: "Investido", value: formatCurrency(asset.investedValue) },
+              { label: "Atual", value: formatCurrency(asset.currentValue) },
+              { label: "Aplicação", value: formatDate(asset.buyDate) },
+            ];
           return (
             <article className="investment-mobile-card" key={asset.id}>
               <div className="investment-mobile-head">
                 <div>
-                  <strong>{asset.ticker}</strong>
-                  <span>{asset.name}</span>
+                  <strong>{title}</strong>
+                  {subtitle ? <span>{subtitle}</span> : null}
                 </div>
                 <Pill>{assetTypeLabel(asset.assetType)}</Pill>
               </div>
               <div className="investment-mobile-metrics">
-                <span>Qtd.<strong>{asset.quantity}</strong></span>
-                <span>PM<strong>{formatCurrency(asset.averagePrice)}</strong></span>
-                <span>Atual<strong>{formatCurrency(asset.currentPrice)}</strong></span>
+                {metrics.map((metric) => <span key={metric.label}>{metric.label}<strong>{metric.value}</strong></span>)}
                 <span>Total<strong className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatCurrency(result)}</strong></span>
               </div>
               <div className="row-actions">
@@ -1383,13 +1486,15 @@ function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset
           <tbody>
             {assets.map((asset) => {
               const result = asset.currentValue + asset.dividends - asset.investedValue;
+              const title = asset.assetType === "fii" && asset.ticker ? normalizeTicker(asset.ticker) : asset.name || asset.ticker;
+              const subtitle = asset.assetType === "fii" ? asset.name : [asset.broker, asset.category].filter(Boolean).join(" · ");
               return (
               <tr key={asset.id}>
-                <td><strong>{asset.ticker}</strong><span>{asset.name}</span></td>
+                <td><strong>{title}</strong>{subtitle ? <span>{subtitle}</span> : null}</td>
                 <td>{assetTypeLabel(asset.assetType)}</td>
-                <td>{asset.quantity}</td>
-                <td>{formatCurrency(asset.averagePrice)}</td>
-                <td>{formatCurrency(asset.currentPrice)}</td>
+                <td>{asset.assetType === "fii" ? asset.quantity : "1"}</td>
+                <td>{asset.assetType === "fii" ? formatCurrency(asset.averagePrice) : formatCurrency(asset.investedValue)}</td>
+                <td>{asset.assetType === "fii" ? formatCurrency(asset.currentPrice) : formatCurrency(asset.currentValue)}</td>
                 <td className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatCurrency(result)}</td>
                 <td>
                   <div className="row-actions">
@@ -1805,7 +1910,7 @@ function createEmptyInvestment(): InvestmentAsset {
   const now = new Date().toISOString();
   return {
     id: "new",
-    assetType: "fii",
+    assetType: "fixed_income",
     ticker: "",
     name: "",
     quantity: 1,
