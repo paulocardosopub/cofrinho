@@ -1792,6 +1792,7 @@ interface InvestmentUpdatePreview {
   confidence: number;
   quantity: number;
   averagePrice: number;
+  investedValue: number;
   currentPrice: number;
   currentValue: number;
   dividends: number;
@@ -1808,6 +1809,7 @@ function buildInvestmentUpdatePreview(result: InvestmentImageAnalysis, assets: I
 
     const quantity = finiteOr(update.quantity, asset.quantity);
     const averagePrice = finiteOr(update.averagePrice, asset.averagePrice);
+    const investedValue = asset.assetType === "fii" && quantity > 0 && averagePrice > 0 ? quantity * averagePrice : asset.investedValue;
     const inferredPrice = update.currentPrice ?? (update.currentValue && quantity > 0 ? update.currentValue / quantity : null);
     const currentPrice = finiteOr(inferredPrice, asset.currentPrice);
     const currentValue = finiteOr(update.currentValue, quantity * currentPrice);
@@ -1820,6 +1822,7 @@ function buildInvestmentUpdatePreview(result: InvestmentImageAnalysis, assets: I
       confidence: update.confidence,
       quantity,
       averagePrice,
+      investedValue,
       currentPrice,
       currentValue,
       dividends,
@@ -1870,6 +1873,7 @@ function applyInvestmentPreviewUpdates(preview: InvestmentUpdatePreview[], onUpd
       ...item.asset,
       quantity: item.quantity,
       averagePrice: item.averagePrice,
+      investedValue: item.investedValue,
       currentPrice: item.currentPrice,
       currentValue: item.currentValue,
       dividends: item.dividends,

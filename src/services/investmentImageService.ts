@@ -29,7 +29,7 @@ interface FilePayload {
 export async function analyzeInvestmentScreenshots(files: File[], assets: InvestmentAsset[]): Promise<InvestmentImageAnalysis> {
   let localError: unknown;
   try {
-    const localAnalysis = await analyzeWithLocalOcr(files);
+    const localAnalysis = await analyzeWithLocalOcr(files, assets);
     if (localAnalysis.updates.length) return localAnalysis;
   } catch (error) {
     localError = error;
@@ -75,7 +75,7 @@ export async function analyzeInvestmentScreenshots(files: File[], assets: Invest
   return data;
 }
 
-async function analyzeWithLocalOcr(files: File[]): Promise<InvestmentImageAnalysis> {
+async function analyzeWithLocalOcr(files: File[], assets: InvestmentAsset[]): Promise<InvestmentImageAnalysis> {
   const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("por");
   try {
@@ -88,7 +88,7 @@ async function analyzeWithLocalOcr(files: File[]): Promise<InvestmentImageAnalys
     const ocrText = texts.join("\n");
     const updates = dedupeInvestmentUpdates([
       ...parseCdbCardsFromText(ocrText),
-      ...parseFiiCardsFromText(ocrText),
+      ...parseFiiCardsFromText(ocrText, assets),
     ]);
     return {
       summary: updates.length ? `${updates.length} investimento(s) identificado(s) por OCR local.` : "Nenhum investimento identificado por OCR local.",
@@ -131,36 +131,37 @@ function parseCdbCardsFromText(text: string): InvestmentImageUpdate[] {
   return dedupeInvestmentUpdates(updates);
 }
 
-function parseFiiCardsFromText(text: string): InvestmentImageUpdate[] {
+function parseFiiCardsFromText(text: string, assets: InvestmentAsset[]): InvestmentImageUpdate[] {
   const lines = textToLines(text);
   const updates: InvestmentImageUpdate[] = [];
+  const usedTickers = new Set<string>();
   for (let index = 0; index < lines.length; index += 1) {
-    const tickers = lines[index].toUpperCase().match(/\b[A-Z]{4}\d{2}[A-Z]?\b/g) ?? [];
-    for (const ticker of tickers) {
-      const windowLines = lines.slice(Math.max(0, index - 2), index + 12);
-      const quantity = findNumberByLabels(windowLines, ["quantidade", "qtd", "cotas"]);
-      const averagePrice = findCurrencyByLabels(windowLines, ["preço médio", "preco medio", "pm"]);
-      const currentPrice = findCurrencyByLabels(windowLines, ["preço atual", "preco atual", "cota atual", "cotação", "cotacao"]);
-      const currentValue =
-        findCurrencyByLabels(windowLines, ["valor atual", "valor de mercado", "saldo bruto", "saldo atual", "total"]) ??
-        (quantity && currentPrice ? quantity * currentPrice : null);
-      const inferredCurrentPrice = currentPrice ?? (quantity && currentValue ? currentValue / quantity : null);
-      const dividends = findCurrencyByLabels(windowLines, ["proventos", "dividendos", "rendimento", "rendimentos"]);
-      if (!currentValue && !inferredCurrentPrice && !quantity) continue;
+    const headerValue = parseCurrencyFromText(lines[index]);
+    const windowLines = lines.slice(index, index + 8);
+    if (!headerValue || !findLineByLabels(windowLines, ["quantidade"]) || !findLineByLabels(windowLines, ["preço atual", "preco atual", "prego atual"])) continue;
 
-      updates.push({
-        ticker,
-        name: findNameNearTicker(windowLines, ticker),
-        assetType: "fii",
-        quantity,
-        averagePrice,
-        currentPrice: inferredCurrentPrice,
-        currentValue,
-        dividends,
-        confidence: currentValue || inferredCurrentPrice ? 0.84 : 0.68,
-        sourceText: windowLines.join(" | "),
-      });
-    }
+    const rawName = cleanFiiHeaderName(lines[index]);
+    const currentPrice = findCurrencyByLabels(windowLines, ["preço atual", "preco atual", "prego atual", "cota atual", "cotação", "cotacao"]);
+    const currentValue = headerValue;
+    const quantity = findNumberByLabels(windowLines, ["quantidade", "qtd", "cotas"]) ?? inferQuantity(currentValue, currentPrice);
+    const profitLoss = findLastCurrencyByLabels(windowLines, ["rentabilidade"]);
+    const averagePrice = inferAveragePrice(currentValue, quantity, profitLoss) ?? findCurrencyByLabels(windowLines, ["preço médio", "preco medio", "pm"]);
+    const ticker = resolveFiiTicker(rawName, assets, { quantity, currentPrice, currentValue }, usedTickers);
+    if (!ticker && !rawName) continue;
+    if (ticker) usedTickers.add(ticker);
+
+    updates.push({
+      ticker,
+      name: ticker ? null : rawName,
+      assetType: "fii",
+      quantity,
+      averagePrice,
+      currentPrice,
+      currentValue,
+      dividends: null,
+      confidence: ticker ? 0.88 : 0.62,
+      sourceText: windowLines.join(" | "),
+    });
   }
 
   return dedupeInvestmentUpdates(updates);
@@ -173,14 +174,14 @@ function textToLines(text: string) {
     .filter(Boolean);
 }
 
-function findNameNearTicker(lines: string[], ticker: string) {
-  const candidate = lines.find((line) => line.includes(ticker) && normalizeText(line) !== normalizeText(ticker)) ?? "";
-  return candidate.replace(ticker, "").replace(/\s+/g, " ").trim() || null;
-}
-
 function findCurrencyByLabels(lines: string[], labels: string[]) {
   const line = findLineByLabels(lines, labels);
   return parseCurrencyFromText(line) ?? parseNumberAfterAnyLabel(line, labels);
+}
+
+function findLastCurrencyByLabels(lines: string[], labels: string[]) {
+  const line = findLineByLabels(lines, labels);
+  return parseCurrencyValuesFromText(line).at(-1) ?? null;
 }
 
 function findNumberByLabels(lines: string[], labels: string[]) {
@@ -190,6 +191,86 @@ function findNumberByLabels(lines: string[], labels: string[]) {
 
 function findLineByLabels(lines: string[], labels: string[]) {
   return lines.find((line) => labels.some((label) => normalizeText(line).includes(normalizeText(label))));
+}
+
+function cleanFiiHeaderName(line: string) {
+  const beforeValue = line.split(/R\$\s*/i)[0] ?? "";
+  return beforeValue
+    .replace(/[$€]/g, "")
+    .replace(/^[S5]\s+/i, "")
+    .replace(/\b(renda|variavel|variável|acoes|ações|fiis|mais|contratos|futuros)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function inferQuantity(currentValue: number | null, currentPrice: number | null) {
+  if (!currentValue || !currentPrice) return null;
+  const quantity = currentValue / currentPrice;
+  const rounded = Math.round(quantity);
+  return Math.abs(quantity - rounded) < 0.04 ? rounded : null;
+}
+
+function inferAveragePrice(currentValue: number | null, quantity: number | null, profitLoss: number | null) {
+  if (!currentValue || !quantity || !Number.isFinite(profitLoss)) return null;
+  const investedValue = currentValue - Number(profitLoss);
+  if (investedValue <= 0) return null;
+  return investedValue / quantity;
+}
+
+function resolveFiiTicker(
+  rawName: string,
+  assets: InvestmentAsset[],
+  metrics: { quantity: number | null; currentPrice: number | null; currentValue: number | null },
+  usedTickers: Set<string>,
+) {
+  const visible = normalizeTickerLike(rawName);
+  const fiiAssets = assets.filter((asset) => asset.assetType === "fii" && normalizeTicker(asset.ticker) && !usedTickers.has(normalizeTicker(asset.ticker)));
+  const exact = fiiAssets.find((asset) => visible.includes(normalizeTicker(asset.ticker)));
+  if (exact) return normalizeTicker(exact.ticker);
+
+  const prefixMatch = fiiAssets
+    .map((asset) => ({ asset, distance: levenshtein(visible.slice(0, 4), normalizeTicker(asset.ticker).slice(0, 4)) }))
+    .filter((item) => visible.length >= 3 && item.distance <= 2)
+    .sort((a, b) => a.distance - b.distance)[0]?.asset;
+  if (prefixMatch) return normalizeTicker(prefixMatch.ticker);
+
+  const metricMatch = fiiAssets
+    .map((asset) => {
+      let score = 0;
+      if (metrics.quantity && Math.abs(asset.quantity - metrics.quantity) < 0.01) score += 2;
+      if (metrics.currentPrice && closeEnough(asset.currentPrice, metrics.currentPrice, 0.08)) score += 2;
+      if (metrics.currentValue && closeEnough(asset.currentValue, metrics.currentValue, 0.08)) score += 2;
+      return { asset, score };
+    })
+    .sort((a, b) => b.score - a.score)[0];
+
+  return metricMatch && metricMatch.score >= 4 ? normalizeTicker(metricMatch.asset.ticker) : "";
+}
+
+function normalizeTickerLike(value: string) {
+  return value
+    .toUpperCase()
+    .replace(/[|Il]/g, "1")
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function closeEnough(left: number, right: number, tolerance: number) {
+  if (!left || !right) return false;
+  return Math.abs(left - right) / Math.max(Math.abs(left), Math.abs(right)) <= tolerance;
+}
+
+function levenshtein(left: string, right: string) {
+  const dp = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0) as number[]);
+  for (let i = 0; i <= left.length; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= right.length; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= left.length; i += 1) {
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[left.length][right.length];
 }
 
 function parseNumberAfterAnyLabel(line: string | undefined, labels: string[]) {
@@ -215,10 +296,31 @@ function cleanInvestmentName(line: string) {
 }
 
 function parseCurrencyFromText(line?: string) {
-  const raw = line?.match(/R\$\s*([0-9.]+,\d{2})/)?.[1];
-  if (!raw) return null;
-  const value = Number(raw.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(value) ? value : null;
+  return parseCurrencyValuesFromText(line).at(0) ?? null;
+}
+
+function parseCurrencyValuesFromText(line?: string) {
+  if (!line) return [];
+  return [...line.matchAll(/R[$S]\s*(-?\s*[0-9.]+(?:,\d{2})?)/gi)]
+    .map((match) => parseOcrMoney(match[1]))
+    .filter((value): value is number => value !== null);
+}
+
+function parseOcrMoney(rawValue: string) {
+  const raw = rawValue.replace(/\s+/g, "");
+  const negative = raw.startsWith("-");
+  const unsigned = raw.replace(/^-/, "");
+  let normalized = "";
+  if (unsigned.includes(",")) {
+    normalized = unsigned.replace(/\./g, "").replace(",", ".");
+  } else {
+    const digits = unsigned.replace(/\D/g, "");
+    if (!digits) return null;
+    normalized = digits.length > 2 ? `${digits.slice(0, -2)}.${digits.slice(-2)}` : digits;
+  }
+  const value = Number(normalized);
+  if (!Number.isFinite(value)) return null;
+  return negative ? -value : value;
 }
 
 function dedupeInvestmentUpdates(updates: InvestmentImageUpdate[]) {
