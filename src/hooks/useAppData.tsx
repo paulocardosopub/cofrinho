@@ -327,14 +327,60 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       deleteCategory(id) {
         if (id === UNCATEGORIZED_ID) return;
-        withData((current) => ({
-          ...current,
-          categories: current.categories.filter((item) => item.id !== id),
-          transactions: current.transactions.map((transaction) =>
-            transaction.categoryId === id ? { ...transaction, categoryId: UNCATEGORIZED_ID } : transaction,
-          ),
-          goals: current.goals.map((goal) => (goal.categoryId === id ? { ...goal, categoryId: UNCATEGORIZED_ID } : goal)),
-        }));
+        withData((current) => {
+          const deletedCategory = current.categories.find((item) => item.id === id);
+          if (!deletedCategory) return current;
+          const deletedKey = normalizeInvestmentCategory(deletedCategory.name);
+          const uncategorizedKey = normalizeInvestmentCategory("Sem categoria");
+          const deletedSummaries = current.investments.filter(
+            (asset) => asset.trackingMode === "category_summary" && normalizeInvestmentCategory(asset.category) === deletedKey,
+          );
+          const uncategorizedSummary = current.investments.find(
+            (asset) => asset.trackingMode === "category_summary" && normalizeInvestmentCategory(asset.category) === uncategorizedKey,
+          );
+          const removedInvested = deletedSummaries.reduce((total, asset) => total + asset.investedValue, 0);
+          const removedCurrent = deletedSummaries.reduce((total, asset) => total + asset.currentValue, 0);
+          const remaining = current.investments
+            .filter((asset) => !deletedSummaries.some((summary) => summary.id === asset.id))
+            .map((asset) => asset.trackingMode !== "category_summary" && normalizeInvestmentCategory(asset.category) === deletedKey
+              ? { ...asset, category: "Sem categoria" }
+              : asset);
+          let investments = remaining;
+          if (deletedSummaries.length && uncategorizedSummary) {
+            investments = remaining.map((asset) => asset.id === uncategorizedSummary.id
+              ? recalculateAsset({
+                ...asset,
+                investedValue: asset.investedValue + removedInvested,
+                currentValue: asset.currentValue + removedCurrent,
+                averagePrice: asset.investedValue + removedInvested,
+                currentPrice: asset.currentValue + removedCurrent,
+                updatedAt: new Date().toISOString(),
+              })
+              : asset);
+          } else if (deletedSummaries.length) {
+            const source = deletedSummaries[0];
+            investments = [recalculateAsset({
+              ...source,
+              id: makeId("inv-summary"),
+              name: "Resumo de Sem categoria",
+              category: "Sem categoria",
+              investedValue: removedInvested,
+              currentValue: removedCurrent,
+              averagePrice: removedInvested,
+              currentPrice: removedCurrent,
+              updatedAt: new Date().toISOString(),
+            }), ...remaining];
+          }
+          return {
+            ...current,
+            categories: current.categories.filter((item) => item.id !== id),
+            transactions: current.transactions.map((transaction) =>
+              transaction.categoryId === id ? { ...transaction, categoryId: UNCATEGORIZED_ID } : transaction,
+            ),
+            goals: current.goals.map((goal) => goal.categoryId === id ? { ...goal, categoryId: UNCATEGORIZED_ID } : goal),
+            investments,
+          };
+        });
       },
       addInvestment(asset) {
         const timestamp = new Date().toISOString();

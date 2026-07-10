@@ -710,6 +710,54 @@ label textarea {
   box-shadow: 0 0 12px currentColor;
 }
 
+.category-manager,
+.category-manager-editor,
+.category-admin-list {
+  display: grid;
+  gap: 12px;
+}
+
+.category-manager-header,
+.category-admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.category-manager-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.category-admin-row {
+  padding: 12px;
+  border: 1px solid rgba(148, 184, 224, 0.14);
+  border-radius: var(--radius);
+  background: rgba(7, 11, 18, 0.24);
+}
+
+.category-admin-row .row-actions {
+  flex-shrink: 0;
+}
+
+@media (max-width: 700px) {
+  .category-manager-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .category-admin-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .category-admin-row .row-actions,
+  .category-admin-row .secondary-button {
+    width: 100%;
+  }
+}
+
 .fii-radar {
   display: grid;
   grid-template-columns: minmax(0, 0.88fr) minmax(320px, 1.12fr);

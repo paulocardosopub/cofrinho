@@ -29,6 +29,7 @@ import {
 } from "recharts";
 import {
   ArrowDownLeft,
+  ArrowLeft,
   ArrowLeftRight,
   ArrowUpRight,
   BadgeDollarSign,
@@ -46,7 +47,6 @@ import {
   Download,
   Edit3,
   FileSpreadsheet,
-  Gauge,
   Gamepad2,
   GraduationCap,
   HeartPulse,
@@ -475,7 +475,7 @@ function DashboardPage() {
   return (
     <Page title="Painel Financeiro" action={<input className="month-input" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />}>
       <div className="stats-grid dashboard-focus-stats">
-        <StatCard icon={Gauge} label="Resultado do mês" value={formatCurrency(summary.result)} tone={summary.result >= 0 ? "green" : "red"} />
+        <StatCard icon={TrendingIcon} label="Resultado do mês" value={formatCurrency(summary.investmentReturn)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
         <StatCard icon={Landmark} label="Patrimônio investido" value={formatCurrency(summary.current)} tone="purple" />
         <StatCard icon={TrendingIcon} label="Rentabilidade" value={formatPercent(summary.investmentReturnRate)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
       </div>
@@ -574,10 +574,12 @@ function DashboardPage() {
 }
 
 function TransactionsPage() {
-  const { data, addTransaction, updateTransaction, deleteTransaction, deleteTransactions, importTransactions } = useRequiredData();
+  const { data, addTransaction, updateTransaction, deleteTransaction, deleteTransactions, importTransactions, addCategory, updateCategory, deleteCategory } = useRequiredData();
   const categoryMap = useMemo(() => getCategoryMap(data.categories), [data.categories]);
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [categoryEditing, setCategoryEditing] = useState<Category | null>(null);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [filters, setFilters] = useState({ text: "", type: "all", category: "all", status: "all" });
@@ -609,11 +611,24 @@ function TransactionsPage() {
     setEditing(null);
   }
 
+  function saveTransactionCategory(category: Category) {
+    if (data.categories.some((item) => item.id === category.id)) updateCategory(category);
+    else {
+      const { id: _id, ...payload } = category;
+      addCategory(payload);
+    }
+    setCategoryEditing(null);
+  }
+
   return (
     <Page
       title="Transações"
       action={
         <div className="action-row">
+          <button className="secondary-button" type="button" onClick={() => setCategoryManagerOpen(true)}>
+            <Tags size={17} />
+            Categorias
+          </button>
           <button className="secondary-button" type="button" onClick={() => setImportOpen(true)}>
             <Upload size={17} />
             Importar extrato
@@ -790,6 +805,35 @@ function TransactionsPage() {
       <Modal title="Importar extrato bancário" open={importOpen} onClose={() => setImportOpen(false)} wide>
         <ImportFlow data={data} onImport={(items, fileName, source) => { importTransactions(items, fileName, source); setImportOpen(false); }} />
       </Modal>
+      <Modal
+        title={categoryEditing ? (categoryEditing.id === "new" ? "Nova categoria" : "Editar categoria") : "Categorias de receitas e despesas"}
+        open={categoryManagerOpen}
+        onClose={() => { setCategoryManagerOpen(false); setCategoryEditing(null); }}
+        wide
+      >
+        {categoryEditing ? (
+          <div className="category-manager-editor">
+            <button className="ghost-button" type="button" onClick={() => setCategoryEditing(null)}><ArrowLeft size={16} />Voltar para categorias</button>
+            <CategoryForm key={categoryEditing.id} category={categoryEditing} onSave={saveTransactionCategory} />
+          </div>
+        ) : (
+          <div className="category-manager">
+            <div className="category-manager-header">
+              <p>Crie e organize as opções disponíveis nos formulários de receitas e despesas.</p>
+              <button className="primary-button" type="button" onClick={() => setCategoryEditing(createEmptyCategory("expense"))}><Plus size={17} />Nova categoria</button>
+            </div>
+            <CategoryAdminList
+              categories={data.categories.filter((category) => category.type !== "investment")}
+              onEdit={setCategoryEditing}
+              onDelete={(category) => {
+                const inUse = data.transactions.some((transaction) => transaction.categoryId === category.id);
+                const message = inUse ? "Categoria em uso. As transações serão movidas para Sem categoria. Continuar?" : "Excluir esta categoria?";
+                if (window.confirm(message)) deleteCategory(category.id);
+              }}
+            />
+          </div>
+        )}
+      </Modal>
     </Page>
   );
 }
@@ -863,7 +907,7 @@ function CategoriesPage() {
                 aria-label={`Excluir ${category.name}`}
                 onClick={() => {
                   const inUse = category.transactionCount + category.investmentCount;
-                  const message = inUse ? "Categoria em uso. Transações serão realocadas para Sem categoria; investimentos continuam com o nome salvo. Continuar?" : "Excluir categoria?";
+                  const message = inUse ? "Categoria em uso. Transações e investimentos serão realocados para Sem categoria, preservando os valores. Continuar?" : "Excluir categoria?";
                   if (window.confirm(message)) deleteCategory(category.id);
                 }}
               >
@@ -882,14 +926,19 @@ function CategoriesPage() {
 }
 
 function InvestmentsPage() {
-  const { data, addInvestment, updateInvestment, updateInvestmentCategorySummaries, deleteInvestment } = useRequiredData();
-  const [tab, setTab] = useState<"visao" | "categorias" | "detalhados" | "fiis">("visao");
+  const { data, addInvestment, updateInvestment, updateInvestmentCategorySummaries, deleteInvestment, addCategory, updateCategory, deleteCategory } = useRequiredData();
+  const [tab, setTab] = useState<"visao" | "atualizar" | "detalhados" | "fiis">("visao");
   const [editing, setEditing] = useState<InvestmentAsset | null>(null);
+  const [categoryEditing, setCategoryEditing] = useState<Category | null>(null);
   const summary = calculateDashboard(data);
   const portfolioAssets = getPortfolioInvestments(data.investments);
   const detailedAssets = getDetailedInvestments(data.investments);
   const allocation = getInvestmentAllocation(data.investments, "category");
   const fiiAssets = detailedAssets.filter((asset) => asset.assetType === "fii");
+  const portfolioCategoryKeys = new Set(portfolioAssets.map((asset) => normalizeCategoryName(asset.category)));
+  const investmentCategories = data.categories.filter(
+    (category) => category.type === "investment" || portfolioCategoryKeys.has(normalizeCategoryName(category.name)),
+  );
   const portfolio = getPortfolioEvolution(data.investments, data.dividends);
 
   function save(asset: InvestmentAsset) {
@@ -902,6 +951,16 @@ function InvestmentsPage() {
     setEditing(null);
   }
 
+  function saveInvestmentCategory(category: Category) {
+    const normalized = { ...category, type: "investment" as const };
+    if (data.categories.some((item) => item.id === category.id)) updateCategory(normalized);
+    else {
+      const { id: _id, ...payload } = normalized;
+      addCategory(payload);
+    }
+    setCategoryEditing(null);
+  }
+
   return (
     <Page title="Investimentos" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyInvestment())}><Plus size={17} />Novo detalhado</button>}>
       <div className="stats-grid compact">
@@ -909,14 +968,17 @@ function InvestmentsPage() {
         <StatCard icon={BadgeDollarSign} label="Valor atual" value={formatCurrency(summary.current)} tone="green" />
         <StatCard icon={TrendingIcon} label="Resultado" value={formatCurrency(summary.investmentReturn)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
       </div>
-      <Panel title="Atualização rápida por print" action={<Pill color="#38bdf8">por categoria</Pill>} mobileDefaultCollapsed>
-        <InvestmentScreenshotUpdater assets={data.investments} onSaveCategories={updateInvestmentCategorySummaries} />
-      </Panel>
-      <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["visao", "Visão geral"], ["categorias", "Categorias"], ["detalhados", "Detalhados"], ["fiis", "FIIs"]]} />
+      <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["visao", "Visão geral"], ["atualizar", "Atualizar investimentos"], ["detalhados", "Detalhados"], ["fiis", "FIIs"]]} />
       {tab === "visao" ? (
         <div className="two-column">
           <Panel title="Visão geral por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
             <InvestmentCategoryOverview assets={portfolioAssets} />
+          </Panel>
+          <Panel title="FIIs acumulados por ativo" action={<Pill>{fiiAssets.length} posição(ões)</Pill>}>
+            <InvestmentFiiOverview assets={fiiAssets} dividends={data.dividends} />
+          </Panel>
+          <Panel title="Distribuição por categoria">
+            {allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Sem categorias atualizadas" text="Use Atualizar investimentos para informar os totais da carteira." />}
           </Panel>
           <Panel title="Evolução da carteira" mobileDefaultCollapsed>
             <ChartBox>
@@ -931,17 +993,40 @@ function InvestmentsPage() {
               </ResponsiveContainer>
             </ChartBox>
           </Panel>
+          <div className="dashboard-wide">
+            <Panel
+              title="Administrar categorias de investimentos"
+              action={<button className="primary-button" type="button" onClick={() => setCategoryEditing(createEmptyCategory("investment"))}><Plus size={17} />Nova categoria</button>}
+            >
+              <CategoryAdminList
+                categories={investmentCategories}
+                onEdit={setCategoryEditing}
+                onDelete={(category) => {
+                  const inUse = data.investments.some((asset) => sameCategory(asset.category, category.name));
+                  const message = inUse ? "Categoria em uso. Os investimentos serão movidos para Sem categoria, preservando os totais. Continuar?" : "Excluir esta categoria?";
+                  if (window.confirm(message)) deleteCategory(category.id);
+                }}
+              />
+            </Panel>
+          </div>
         </div>
       ) : null}
-      {tab === "categorias" ? (
+      {tab === "atualizar" ? (
         <div className="two-column">
-          <Panel title="Distribuição por categoria">{allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Sem categorias atualizadas" text="Use a atualização rápida para informar o total de cada categoria." />}</Panel>
+          <div className="dashboard-wide">
+            <Panel title="Atualização rápida por print" action={<Pill color="#38bdf8">totais por categoria</Pill>}>
+              <InvestmentScreenshotUpdater assets={data.investments} onSaveCategories={updateInvestmentCategorySummaries} />
+            </Panel>
+          </div>
+          <Panel title="Totais atuais por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
+            <InvestmentCategoryOverview assets={portfolioAssets} />
+          </Panel>
           <Panel title="Atualização por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
             {portfolioAssets.length
               ? <InvestmentCategoryQuickUpdate assets={portfolioAssets} onSaveCategory={(summary) => updateInvestmentCategorySummaries([summary])} />
-              : <EmptyState title="Nenhuma categoria consolidada" text="Envie um print ou cadastre um investimento detalhado para iniciar a visão geral." />}
+              : <EmptyState title="Nenhuma categoria consolidada" text="Envie um print para iniciar a visão geral acumulada." />}
           </Panel>
-          <Panel title="Resumo por categoria">
+          <Panel title="Conferência dos valores acumulados">
             <div className="stack-list">
               {allocation.map((item) => (
                 <div className="list-row" key={item.name}>
@@ -986,6 +1071,9 @@ function InvestmentsPage() {
       ) : null}
       <Modal title={editing && editing.id !== "new" ? "Editar investimento" : "Adicionar Investimento"} open={Boolean(editing)} onClose={() => setEditing(null)}>
         {editing ? <InvestmentForm asset={editing} categories={data.categories} onSave={save} /> : null}
+      </Modal>
+      <Modal title={categoryEditing?.id === "new" ? "Nova categoria de investimento" : "Editar categoria de investimento"} open={Boolean(categoryEditing)} onClose={() => setCategoryEditing(null)}>
+        {categoryEditing ? <CategoryForm key={categoryEditing.id} category={categoryEditing} onSave={saveInvestmentCategory} lockType="investment" /> : null}
       </Modal>
     </Page>
   );
@@ -1572,13 +1660,13 @@ function ImportFlow({ data, onImport }: { data: ReturnType<typeof useRequiredDat
   );
 }
 
-function CategoryForm({ category, onSave }: { category: Category; onSave: (category: Category) => void }) {
+function CategoryForm({ category, onSave, lockType }: { category: Category; onSave: (category: Category) => void; lockType?: Category["type"] }) {
   const [draft, setDraft] = useState(category);
   return (
-    <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave(draft); }}>
+    <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave({ ...draft, type: lockType ?? draft.type }); }}>
       <label>Nome<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label>
       <label>Tipo
-        <select value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as Category["type"] })}>
+        <select value={lockType ?? draft.type} disabled={Boolean(lockType)} onChange={(event) => setDraft({ ...draft, type: event.target.value as Category["type"] })}>
           <option value="income">Receita</option>
           <option value="expense">Despesa</option>
           <option value="investment">Investimento</option>
@@ -1591,6 +1679,31 @@ function CategoryForm({ category, onSave }: { category: Category; onSave: (categ
       <label>Limite mensal<input type="number" step="0.01" value={draft.monthlyBudget ?? ""} onChange={(event) => setDraft({ ...draft, monthlyBudget: Number(event.target.value) || undefined })} /></label>
       <button className="primary-button span-2" type="submit"><CheckCircle2 size={17} />Salvar categoria</button>
     </form>
+  );
+}
+
+function CategoryAdminList({ categories, onEdit, onDelete }: { categories: Category[]; onEdit: (category: Category) => void; onDelete: (category: Category) => void }) {
+  if (!categories.length) return <EmptyState title="Nenhuma categoria criada" text="Crie a primeira categoria para organizar seus lançamentos." />;
+  return (
+    <div className="category-admin-list">
+      {categories.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR")).map((category) => {
+        const protectedCategory = category.id === "cat-sem-categoria";
+        return (
+          <article className="category-admin-row" key={category.id}>
+            <div className="category-main">
+              <Pill color={category.color}><CategoryIcon name={category.icon} /></Pill>
+              <div><strong>{category.name}</strong><span>{categoryTypeLabel(category.type)}{category.monthlyBudget ? ` · limite ${formatCurrency(category.monthlyBudget)}` : ""}</span></div>
+            </div>
+            {protectedCategory ? <Pill color="#64748b">Padrão do sistema</Pill> : (
+              <div className="row-actions">
+                <button className="secondary-button" type="button" onClick={() => onEdit(category)}><Edit3 size={16} />Editar</button>
+                <button className="icon-button danger-icon" type="button" onClick={() => onDelete(category)} aria-label={`Excluir ${category.name}`}><Trash2 size={16} /></button>
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -2261,6 +2374,38 @@ function InvestmentCategoryOverview({ assets }: { assets: InvestmentAsset[] }) {
   );
 }
 
+function InvestmentFiiOverview({ assets, dividends }: { assets: InvestmentAsset[]; dividends: DividendIncome[] }) {
+  const groups = new Map<string, { ticker: string; name: string; quantity: number; investedValue: number; currentValue: number; dividends: number }>();
+  assets.forEach((asset) => {
+    const ticker = normalizeTicker(asset.ticker) || asset.name;
+    const recordedDividends = dividends.filter((dividend) => dividend.assetId === asset.id).reduce((sum, dividend) => sum + dividend.amount, 0);
+    const current = groups.get(ticker) ?? { ticker, name: asset.name, quantity: 0, investedValue: 0, currentValue: 0, dividends: 0 };
+    current.quantity += asset.quantity;
+    current.investedValue += asset.investedValue;
+    current.currentValue += asset.currentValue;
+    current.dividends += recordedDividends || asset.dividends;
+    groups.set(ticker, current);
+  });
+  const rows = [...groups.values()].sort((a, b) => b.currentValue - a.currentValue);
+  if (!rows.length) return <EmptyState title="Nenhum FII detalhado" text="Cadastre os FIIs para ver o total acumulado de cada ativo." />;
+  return (
+    <div className="investment-category-overview">
+      {rows.map((row) => {
+        const result = row.currentValue + row.dividends - row.investedValue;
+        const averagePrice = row.quantity > 0 ? row.investedValue / row.quantity : 0;
+        return (
+          <article className="investment-category-card" key={row.ticker}>
+            <div><strong>{row.ticker}</strong><span>{row.name}</span></div>
+            <strong>{formatCurrency(row.currentValue)}</strong>
+            <span>{row.quantity} cota(s) · PM {formatCurrency(averagePrice)}</span>
+            <span className={result >= 0 ? "amount-positive" : "amount-negative"}>{result >= 0 ? "+" : ""}{formatCurrency(result)}</span>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function InvestmentMaturityAgenda({ assets }: { assets: InvestmentAsset[] }) {
   const datedAssets = assets
     .filter((asset) => asset.maturityDate)
@@ -2528,8 +2673,8 @@ function createEmptyTransaction(type: TransactionType, accountId = "acc-carteira
   };
 }
 
-function createEmptyCategory(): Category {
-  return { id: "new", name: "", type: "expense", color: "#0f766e", icon: "Circle", monthlyBudget: undefined };
+function createEmptyCategory(type: Category["type"] = "expense"): Category {
+  return { id: "new", name: "", type, color: type === "investment" ? "#2563eb" : "#0f766e", icon: type === "investment" ? "Landmark" : "Circle", monthlyBudget: undefined };
 }
 
 function createEmptyInvestment(): InvestmentAsset {
