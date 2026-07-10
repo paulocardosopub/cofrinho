@@ -38,6 +38,14 @@ import {
   updateUser,
 } from "../services/storage";
 
+interface InvestmentCategorySummaryPayload {
+  category: string;
+  currentValue: number;
+  investedValue?: number;
+  assetType?: InvestmentAsset["assetType"];
+  sourceText?: string;
+}
+
 interface AppDataContextValue {
   user: User | null;
   data: UserData | null;
@@ -61,6 +69,7 @@ interface AppDataContextValue {
   deleteCategory: (id: string) => void;
   addInvestment: (asset: Omit<InvestmentAsset, "id" | "createdAt" | "updatedAt">) => void;
   updateInvestment: (asset: InvestmentAsset) => void;
+  updateInvestmentCategorySummaries: (summaries: InvestmentCategorySummaryPayload[]) => void;
   deleteInvestment: (id: string) => void;
   addGoal: (goal: Omit<Goal, "id" | "createdAt">) => void;
   updateGoal: (goal: Goal) => void;
@@ -74,6 +83,34 @@ interface AppDataContextValue {
 }
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
+
+function normalizeInvestmentCategory(value?: string) {
+  return (value || "Sem categoria")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+}
+
+function syncLinkedFiiDividend(dividends: UserData["dividends"], transaction: Transaction) {
+  const existing = dividends.find((dividend) => dividend.transactionId === transaction.id);
+  const remaining = dividends.filter((dividend) => dividend.transactionId !== transaction.id);
+  const shouldTrack =
+    transaction.type === "income" &&
+    transaction.status === "paid" &&
+    transaction.investmentIncomeType === "fii_dividend" &&
+    Boolean(transaction.investmentAssetId);
+  if (!shouldTrack || !transaction.investmentAssetId) return remaining;
+
+  return [{
+    id: existing?.id ?? makeId("div"),
+    assetId: transaction.investmentAssetId,
+    date: transaction.date,
+    amount: transaction.amount,
+    description: transaction.description || "Provento de FII",
+    transactionId: transaction.id,
+  }, ...remaining];
+}
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => getSessionUser());
@@ -199,38 +236,41 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       addTransaction(transaction) {
         const timestamp = new Date().toISOString();
-        withData((current) => ({
-          ...current,
-          transactions: [
-            {
-              ...transaction,
-              id: makeId("tr"),
-              tags: transaction.tags ?? [],
-              createdAt: timestamp,
-              updatedAt: timestamp,
-            },
-            ...current.transactions,
-          ],
-        }));
+        withData((current) => {
+          const created: Transaction = {
+            ...transaction,
+            id: makeId("tr"),
+            tags: transaction.tags ?? [],
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          };
+          return {
+            ...current,
+            transactions: [created, ...current.transactions],
+            dividends: syncLinkedFiiDividend(current.dividends, created),
+          };
+        });
       },
       updateTransaction(transaction) {
+        const updated = { ...transaction, updatedAt: new Date().toISOString() };
         withData((current) => ({
           ...current,
-          transactions: current.transactions.map((item) =>
-            item.id === transaction.id ? { ...transaction, updatedAt: new Date().toISOString() } : item,
-          ),
+          transactions: current.transactions.map((item) => item.id === transaction.id ? updated : item),
+          dividends: syncLinkedFiiDividend(current.dividends, updated),
         }));
       },
       deleteTransaction(id) {
         withData((current) => ({
           ...current,
           transactions: current.transactions.filter((item) => item.id !== id),
+          dividends: current.dividends.filter((item) => item.transactionId !== id),
         }));
       },
       deleteTransactions(ids) {
         withData((current) => ({
           ...current,
           transactions: current.transactions.filter((item) => !ids.includes(item.id)),
+          dividends: current.dividends.filter((item) => !item.transactionId || !ids.includes(item.transactionId)),
         }));
       },
       importTransactions(items, fileName, source) {
@@ -319,12 +359,68 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           ),
         }));
       },
+      updateInvestmentCategorySummaries(summaries) {
+        const timestamp = new Date().toISOString();
+        withData((current) => summaries.reduce((next, summary) => {
+          const category = summary.category.trim() || "Sem categoria";
+          const categoryKey = normalizeInvestmentCategory(category);
+          const existing = next.investments.find(
+            (asset) => asset.trackingMode === "category_summary" && normalizeInvestmentCategory(asset.category) === categoryKey,
+          );
+          const details = next.investments.filter(
+            (asset) => asset.trackingMode !== "category_summary" && normalizeInvestmentCategory(asset.category) === categoryKey,
+          );
+          const currentValue = Math.max(0, Number(summary.currentValue) || 0);
+          const investedValue = Math.max(
+            0,
+            Number(summary.investedValue ?? existing?.investedValue ?? details.reduce((total, asset) => total + asset.investedValue, 0) ?? currentValue) || currentValue,
+          );
+          const notes = [
+            existing?.notes,
+            summary.sourceText ? `Atualizado por print consolidado: ${summary.sourceText}` : "Atualizado manualmente pela visão por categoria.",
+          ].filter(Boolean).join("\n");
+          const nextSummary: InvestmentAsset = recalculateAsset({
+            ...(existing ?? {
+              id: makeId("inv-summary"),
+              ticker: "",
+              name: `Resumo de ${category}`,
+              quantity: 1,
+              dividends: 0,
+              buyDate: timestamp.slice(0, 10),
+              broker: "Consolidado por categoria",
+              createdAt: timestamp,
+            }),
+            assetType: summary.assetType ?? existing?.assetType ?? details[0]?.assetType ?? "other",
+            category,
+            trackingMode: "category_summary",
+            averagePrice: investedValue,
+            currentPrice: currentValue,
+            investedValue,
+            currentValue,
+            notes,
+            updatedAt: timestamp,
+          });
+          const hasCategory = next.categories.some((item) => normalizeInvestmentCategory(item.name) === categoryKey);
+          return {
+            ...next,
+            categories: hasCategory || categoryKey === "sem categoria"
+              ? next.categories
+              : [{ id: makeId("cat"), name: category, type: "investment", color: "#2563eb", icon: "Landmark" }, ...next.categories],
+            investments: existing
+              ? next.investments.map((asset) => asset.id === existing.id ? nextSummary : asset)
+              : [nextSummary, ...next.investments],
+          };
+        }, current));
+      },
       deleteInvestment(id) {
         withData((current) => ({
           ...current,
           investments: current.investments.filter((item) => item.id !== id),
           dividends: current.dividends.filter((item) => item.assetId !== id),
           operations: current.operations.filter((item) => item.assetId !== id),
+          transactions: current.transactions.map((item) => item.investmentAssetId === id
+            ? { ...item, investmentAssetId: undefined, investmentIncomeType: undefined }
+            : item),
         }));
       },
       addGoal(goal) {

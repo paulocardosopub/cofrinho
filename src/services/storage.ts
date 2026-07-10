@@ -292,6 +292,81 @@ export function importUserData(userId: string, payload: string, currentData?: Us
   return normalized;
 }
 
+function investmentCategoryLabel(asset: InvestmentAsset) {
+  if (asset.category?.trim()) return asset.category.trim();
+  const labels: Record<InvestmentAsset["assetType"], string> = {
+    fii: "Fundos Imobiliários (FIIs)",
+    stock: "Ações",
+    fixed_income: "Renda Fixa",
+    cdb: "CDB",
+    lci_lca: "LCI / LCA",
+    crypto: "Criptomoedas",
+    fund: "Fundos de Investimento",
+    treasury: "Tesouro Direto",
+    other: "Outros investimentos",
+  };
+  return labels[asset.assetType];
+}
+
+function normalizeInvestmentCategory(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+}
+
+function migrateInvestmentTracking(investments: InvestmentAsset[]) {
+  const detailed = investments
+    .filter((asset) => asset.trackingMode !== "category_summary")
+    .map((asset) => ({ ...asset, category: investmentCategoryLabel(asset), trackingMode: "maturity_detail" as const }));
+  const summaries = investments
+    .filter((asset) => asset.trackingMode === "category_summary")
+    .map((asset) => ({ ...asset, category: investmentCategoryLabel(asset), trackingMode: "category_summary" as const }));
+  const summaryCategories = new Set(summaries.map((asset) => normalizeInvestmentCategory(investmentCategoryLabel(asset))));
+  const groups = new Map<string, InvestmentAsset[]>();
+
+  detailed.forEach((asset) => {
+    const category = investmentCategoryLabel(asset);
+    const key = normalizeInvestmentCategory(category);
+    groups.set(key, [...(groups.get(key) ?? []), asset]);
+  });
+
+  const generatedSummaries = [...groups.entries()].flatMap(([key, assets]) => {
+    if (summaryCategories.has(key)) return [];
+    const category = investmentCategoryLabel(assets[0]);
+    const investedValue = assets.reduce((total, asset) => total + Number(asset.investedValue || 0), 0);
+    const currentValue = assets.reduce((total, asset) => total + Number(asset.currentValue || 0), 0);
+    const assetTypes = new Set(assets.map((asset) => asset.assetType));
+    const timestamps = assets.map((asset) => asset.createdAt).filter(Boolean).sort();
+    const updatedTimestamps = assets.map((asset) => asset.updatedAt).filter(Boolean).sort();
+    const buyDates = assets.map((asset) => asset.buyDate).filter(Boolean).sort();
+    const now = new Date().toISOString();
+    return [{
+      id: `inv-summary-${key || "sem-categoria"}`,
+      assetType: assetTypes.size === 1 ? assets[0].assetType : "other" as const,
+      ticker: "",
+      name: `Resumo de ${category}`,
+      quantity: 1,
+      averagePrice: investedValue,
+      currentPrice: currentValue,
+      investedValue,
+      currentValue,
+      dividends: 0,
+      buyDate: buyDates[0] ?? now.slice(0, 10),
+      broker: "Consolidado por categoria",
+      category,
+      trackingMode: "category_summary" as const,
+      notes: "Total consolidado criado a partir dos investimentos já cadastrados. Atualize este valor pela visão por categoria.",
+      createdAt: timestamps[0] ?? now,
+      updatedAt: updatedTimestamps.at(-1) ?? now,
+    }];
+  });
+
+  return [...summaries, ...generatedSummaries, ...detailed];
+}
+
 export function normalizeData(data: UserData): UserData {
   const categories = data.categories?.length ? data.categories : createDefaultUserData().categories;
   const hasUncategorized = categories.some((category) => category.id === UNCATEGORIZED_ID);
@@ -308,24 +383,32 @@ export function normalizeData(data: UserData): UserData {
     categoryId: categoryIds.has(transaction.categoryId) ? transaction.categoryId : UNCATEGORIZED_ID,
     tags: transaction.tags ?? [],
   }));
+  const normalizedInvestments = migrateInvestmentTracking(data.investments ?? []);
+  const categoriesWithInvestments = [...normalizedCategories];
+  normalizedInvestments
+    .filter((asset) => asset.trackingMode === "category_summary")
+    .forEach((asset) => {
+      const name = investmentCategoryLabel(asset);
+      const key = normalizeInvestmentCategory(name);
+      if (categoriesWithInvestments.some((category) => normalizeInvestmentCategory(category.name) === key)) return;
+      categoriesWithInvestments.push({ id: `cat-investment-${key}`, name, type: "investment", color: "#2563eb", icon: "Landmark" });
+    });
 
   const defaultData = createDefaultUserData();
-  const migratedSettings =
-    data.settings?.visualVersion === 2
-      ? data.settings
-      : {
-          ...defaultData.settings,
-          ...data.settings,
-          theme: "dark" as const,
-          visualVersion: 2,
-        };
+  const migratedSettings = {
+    ...defaultData.settings,
+    ...data.settings,
+    theme: data.settings?.visualVersion === 2 ? data.settings.theme ?? defaultData.settings.theme : "dark" as const,
+    visualVersion: 2,
+    investmentTrackingVersion: 1,
+  };
 
   return {
     accounts,
-    categories: normalizedCategories,
+    categories: categoriesWithInvestments,
     transactions,
     goals: data.goals ?? [],
-    investments: data.investments ?? [],
+    investments: normalizedInvestments,
     operations: data.operations ?? [],
     dividends: data.dividends ?? [],
     importBatches: data.importBatches ?? [],

@@ -21,8 +21,9 @@ export function calculateDashboard(data: UserData, month = new Date().toISOStrin
   const expenses = sumTransactions(monthTransactions, (item) => item.type === "expense");
   const investmentsOutflow = sumTransactions(monthTransactions, (item) => item.type === "investment");
   const balance = data.transactions.reduce((total, transaction) => total + signedAmount(transaction), 0);
-  const invested = data.investments.reduce((total, asset) => total + asset.investedValue, 0);
-  const current = data.investments.reduce((total, asset) => total + asset.currentValue, 0);
+  const portfolioInvestments = getPortfolioInvestments(data.investments);
+  const invested = portfolioInvestments.reduce((total, asset) => total + asset.investedValue, 0);
+  const current = portfolioInvestments.reduce((total, asset) => total + asset.currentValue, 0);
   const dividends = data.dividends.reduce((total, dividend) => total + dividend.amount, 0);
   const result = income - expenses - investmentsOutflow;
   const investmentReturn = current - invested + dividends;
@@ -100,7 +101,7 @@ export function getMonthlyCashflow(transactions: Transaction[], monthsBack = 6) 
 
 export function getInvestmentAllocation(investments: InvestmentAsset[], field: "assetType" | "ticker" | "category" = "assetType") {
   const totals = new Map<string, number>();
-  investments.forEach((asset) => {
+  getPortfolioInvestments(investments).forEach((asset) => {
     const label = field === "assetType" ? assetTypeLabel(asset.assetType) : asset[field] || "Sem categoria";
     totals.set(label, (totals.get(label) ?? 0) + asset.currentValue);
   });
@@ -111,8 +112,9 @@ export function getInvestmentAllocation(investments: InvestmentAsset[], field: "
 }
 
 export function getPortfolioEvolution(investments: InvestmentAsset[], dividends: DividendIncome[]) {
-  const invested = investments.reduce((total, asset) => total + asset.investedValue, 0);
-  const current = investments.reduce((total, asset) => total + asset.currentValue, 0);
+  const portfolioInvestments = getPortfolioInvestments(investments);
+  const invested = portfolioInvestments.reduce((total, asset) => total + asset.investedValue, 0);
+  const current = portfolioInvestments.reduce((total, asset) => total + asset.currentValue, 0);
   const income = dividends.reduce((total, dividend) => total + dividend.amount, 0);
 
   return [
@@ -123,6 +125,7 @@ export function getPortfolioEvolution(investments: InvestmentAsset[], dividends:
 }
 
 export function getInvestmentEvolution(investments: InvestmentAsset[], dividends: DividendIncome[], monthsBack = 6) {
+  const portfolioInvestments = getPortfolioInvestments(investments);
   const now = new Date();
   const months = Array.from({ length: monthsBack }).map((_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth() - (monthsBack - 1 - index), 1);
@@ -137,7 +140,7 @@ export function getInvestmentEvolution(investments: InvestmentAsset[], dividends
   });
 
   return months.map((row) => {
-    const activeAssets = investments.filter((asset) => toMonth(asset.buyDate || asset.createdAt) <= row.month);
+    const activeAssets = portfolioInvestments.filter((asset) => toMonth(asset.buyDate || asset.createdAt) <= row.month);
     const monthDividends = dividends.filter((dividend) => toMonth(dividend.date) <= row.month);
     return {
       ...row,
@@ -146,6 +149,29 @@ export function getInvestmentEvolution(investments: InvestmentAsset[], dividends
       proventos: monthDividends.reduce((total, dividend) => total + dividend.amount, 0),
     };
   });
+}
+
+export function getPortfolioInvestments(investments: InvestmentAsset[]) {
+  const summaries = investments.filter((asset) => asset.trackingMode === "category_summary");
+  if (!summaries.length) return investments.filter((asset) => asset.trackingMode !== "maturity_detail");
+
+  const summarizedCategories = new Set(summaries.map((asset) => normalizeInvestmentCategory(asset.category)));
+  const legacyWithoutSummary = investments.filter(
+    (asset) => !asset.trackingMode && !summarizedCategories.has(normalizeInvestmentCategory(asset.category)),
+  );
+  return [...summaries, ...legacyWithoutSummary];
+}
+
+export function getDetailedInvestments(investments: InvestmentAsset[]) {
+  return investments.filter((asset) => asset.trackingMode !== "category_summary");
+}
+
+function normalizeInvestmentCategory(category?: string) {
+  return (category || "Sem categoria")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
 }
 
 export function getDividendsByMonth(dividends: DividendIncome[]) {

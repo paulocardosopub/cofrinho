@@ -84,6 +84,7 @@ import { analyzeInvestmentScreenshots, type InvestmentImageAnalysis, type Invest
 import type {
   AssetType,
   Category,
+  DividendIncome,
   Goal,
   ImportPreviewItem,
   InvestmentAsset,
@@ -97,8 +98,10 @@ import {
   calculateGoalProgress,
   getCategoryMap,
   getDividendsByMonth,
+  getDetailedInvestments,
   getInvestmentEvolution,
   getInvestmentAllocation,
+  getPortfolioInvestments,
   getMonthlyCashflow,
   getPortfolioEvolution,
   groupExpensesByCategory,
@@ -433,9 +436,9 @@ function DashboardPage() {
   const summary = calculateDashboard(data, month);
   const categories = groupExpensesByCategory(data.transactions, data.categories, month);
   const cashflow = getMonthlyCashflow(data.transactions, 6);
-  const allocation = getInvestmentAllocation(data.investments);
+  const allocation = getInvestmentAllocation(data.investments, "category");
   const investmentEvolution = getInvestmentEvolution(data.investments, data.dividends, 6);
-  const fiiAssets = data.investments.filter((asset) => asset.assetType === "fii");
+  const fiiAssets = getDetailedInvestments(data.investments).filter((asset) => asset.assetType === "fii");
   const latest = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   const latestQuote = Object.values(quotes).sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt))[0];
   const quoteStatus = quotesLoading
@@ -543,7 +546,7 @@ function DashboardPage() {
               </div>
             )}
           >
-            <FiiRadarPanel assets={fiiAssets} quotes={quotes} loading={quotesLoading} error={quotesError} />
+            <FiiRadarPanel assets={fiiAssets} dividends={data.dividends} quotes={quotes} loading={quotesLoading} error={quotesError} />
           </Panel>
         </div>
       </div>
@@ -711,6 +714,7 @@ function TransactionsPage() {
           <>
             <TransactionMobileList
               transactions={filtered}
+              investments={data.investments}
               categoryMap={categoryMap}
               selected={selected}
               onToggle={(id, checked) => setSelected((current) => checked ? [...current, id] : current.filter((item) => item !== id))}
@@ -748,7 +752,7 @@ function TransactionsPage() {
                     <td>{formatDate(transaction.date)}</td>
                     <td>
                       <strong>{transaction.description}</strong>
-                      <span>{transaction.paymentMethod} · {transaction.source}</span>
+                      <span>{transactionFiiIncomeLabel(transaction, data.investments) || `${transaction.paymentMethod} · ${transaction.source}`}</span>
                     </td>
                     <td>
                       <Pill color={categoryMap.get(transaction.categoryId)?.color}>{categoryMap.get(transaction.categoryId)?.name ?? "Sem categoria"}</Pill>
@@ -797,14 +801,15 @@ function CategoriesPage() {
     () =>
       data.categories.map((category) => {
         const transactions = data.transactions.filter((transaction) => transaction.categoryId === category.id);
-        const investments = data.investments.filter((asset) => sameCategory(asset.category, category.name));
+        const investments = getPortfolioInvestments(data.investments).filter((asset) => sameCategory(asset.category, category.name));
+        const detailedInvestments = getDetailedInvestments(data.investments).filter((asset) => sameCategory(asset.category, category.name));
         const spent = transactions.filter((transaction) => transaction.type === "expense").reduce((sum, transaction) => sum + transaction.amount, 0);
         const invested = investments.reduce((sum, asset) => sum + asset.investedValue, 0);
         const current = investments.reduce((sum, asset) => sum + asset.currentValue, 0);
         return {
           ...category,
           transactionCount: transactions.length,
-          investmentCount: investments.length,
+          investmentCount: detailedInvestments.length || investments.length,
           spent,
           invested,
           current,
@@ -877,39 +882,41 @@ function CategoriesPage() {
 }
 
 function InvestmentsPage() {
-  const { data, addInvestment, updateInvestment, deleteInvestment } = useRequiredData();
-  const [tab, setTab] = useState<"lista" | "fiis" | "categorias">("lista");
+  const { data, addInvestment, updateInvestment, updateInvestmentCategorySummaries, deleteInvestment } = useRequiredData();
+  const [tab, setTab] = useState<"visao" | "categorias" | "detalhados" | "fiis">("visao");
   const [editing, setEditing] = useState<InvestmentAsset | null>(null);
   const summary = calculateDashboard(data);
-  const allocation = getInvestmentAllocation(data.investments, tab === "categorias" ? "category" : "assetType");
-  const fiiAssets = data.investments.filter((asset) => asset.assetType === "fii");
-  const nonFiiAssets = data.investments.filter((asset) => asset.assetType !== "fii");
+  const portfolioAssets = getPortfolioInvestments(data.investments);
+  const detailedAssets = getDetailedInvestments(data.investments);
+  const allocation = getInvestmentAllocation(data.investments, "category");
+  const fiiAssets = detailedAssets.filter((asset) => asset.assetType === "fii");
   const portfolio = getPortfolioEvolution(data.investments, data.dividends);
 
   function save(asset: InvestmentAsset) {
-    if (data.investments.some((item) => item.id === asset.id)) updateInvestment(asset);
+    const detailedAsset = { ...asset, trackingMode: "maturity_detail" as const };
+    if (data.investments.some((item) => item.id === asset.id)) updateInvestment(detailedAsset);
     else {
-      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...payload } = asset;
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...payload } = detailedAsset;
       addInvestment(payload);
     }
     setEditing(null);
   }
 
   return (
-    <Page title="Investimentos" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyInvestment())}><Plus size={17} />Novo investimento</button>}>
+    <Page title="Investimentos" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyInvestment())}><Plus size={17} />Novo detalhado</button>}>
       <div className="stats-grid compact">
         <StatCard icon={Landmark} label="Total investido" value={formatCurrency(summary.invested)} tone="blue" />
         <StatCard icon={BadgeDollarSign} label="Valor atual" value={formatCurrency(summary.current)} tone="green" />
         <StatCard icon={TrendingIcon} label="Resultado" value={formatCurrency(summary.investmentReturn)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
       </div>
-      <Panel title="Importar print da carteira" action={<Pill color="#38bdf8">OCR local</Pill>} mobileDefaultCollapsed>
-        <InvestmentScreenshotUpdater assets={data.investments} onUpdate={updateInvestment} />
+      <Panel title="Atualização rápida por print" action={<Pill color="#38bdf8">por categoria</Pill>} mobileDefaultCollapsed>
+        <InvestmentScreenshotUpdater assets={data.investments} onSaveCategories={updateInvestmentCategorySummaries} />
       </Panel>
-      <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["lista", "Lista"], ["fiis", "FIIs"], ["categorias", "Categorias"]]} />
-      {tab === "lista" ? (
+      <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["visao", "Visão geral"], ["categorias", "Categorias"], ["detalhados", "Detalhados"], ["fiis", "FIIs"]]} />
+      {tab === "visao" ? (
         <div className="two-column">
-          <Panel title="Carteira">
-            <InvestmentTable assets={data.investments} onEdit={setEditing} onDelete={deleteInvestment} />
+          <Panel title="Visão geral por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
+            <InvestmentCategoryOverview assets={portfolioAssets} />
           </Panel>
           <Panel title="Evolução da carteira" mobileDefaultCollapsed>
             <ChartBox>
@@ -926,9 +933,40 @@ function InvestmentsPage() {
           </Panel>
         </div>
       ) : null}
+      {tab === "categorias" ? (
+        <div className="two-column">
+          <Panel title="Distribuição por categoria">{allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Sem categorias atualizadas" text="Use a atualização rápida para informar o total de cada categoria." />}</Panel>
+          <Panel title="Atualização por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
+            {portfolioAssets.length
+              ? <InvestmentCategoryQuickUpdate assets={portfolioAssets} onSaveCategory={(summary) => updateInvestmentCategorySummaries([summary])} />
+              : <EmptyState title="Nenhuma categoria consolidada" text="Envie um print ou cadastre um investimento detalhado para iniciar a visão geral." />}
+          </Panel>
+          <Panel title="Resumo por categoria">
+            <div className="stack-list">
+              {allocation.map((item) => (
+                <div className="list-row" key={item.name}>
+                  <span>{item.name}</span>
+                  <strong>{formatCurrency(item.value)}</strong>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      ) : null}
+      {tab === "detalhados" ? (
+        <div className="two-column">
+          <Panel title="Investimentos detalhados" action={<Pill>{detailedAssets.length} aplicação(ões)</Pill>}>
+            <div className="inline-alert">Estes cadastros servem para acompanhar vencimentos e renovações. Seus valores não são somados novamente ao patrimônio.</div>
+            <InvestmentTable assets={detailedAssets} onEdit={setEditing} onDelete={deleteInvestment} />
+          </Panel>
+          <Panel title="Agenda de vencimentos">
+            <InvestmentMaturityAgenda assets={detailedAssets} />
+          </Panel>
+        </div>
+      ) : null}
       {tab === "fiis" ? (
         <div className="two-column">
-          <Panel title="Atualização rápida de FIIs" action={<Pill>{fiiAssets.length} FII(s)</Pill>}>
+          <Panel title="FIIs detalhados" action={<Pill>{fiiAssets.length} FII(s)</Pill>}>
             {fiiAssets.length ? <FiiQuickUpdate assets={fiiAssets} onUpdate={updateInvestment} /> : <EmptyState title="Nenhum FII cadastrado" text="Cadastre FIIs para acompanhar cotas, preço médio, cotação e proventos." />}
           </Panel>
           <Panel title="Proventos por mês" mobileDefaultCollapsed>
@@ -943,24 +981,6 @@ function InvestmentsPage() {
                 </BarChart>
               </ResponsiveContainer>
             </ChartBox>
-          </Panel>
-        </div>
-      ) : null}
-      {tab === "categorias" ? (
-        <div className="two-column">
-          <Panel title="Distribuição por categoria">{allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Sem ativos" text="Cadastre ativos para ver a distribuição." />}</Panel>
-          <Panel title="Atualização por categoria" action={<Pill>{nonFiiAssets.length} ativo(s)</Pill>}>
-            {nonFiiAssets.length ? <InvestmentCategoryQuickUpdate assets={nonFiiAssets} onUpdate={updateInvestment} /> : <EmptyState title="Nenhum investimento fora de FIIs" text="CDBs, renda fixa, ações, fundos e outros aparecerão aqui para conferência." />}
-          </Panel>
-          <Panel title="Resumo por categoria">
-            <div className="stack-list">
-              {allocation.map((item) => (
-                <div className="list-row" key={item.name}>
-                  <span>{item.name}</span>
-                  <strong>{formatCurrency(item.value)}</strong>
-                </div>
-              ))}
-            </div>
           </Panel>
         </div>
       ) : null}
@@ -1045,7 +1065,7 @@ function GuruPage() {
             </ChartBox>
           </Panel>
           <Panel title="Investimentos">
-            <PieChartBlock data={getInvestmentAllocation(data.investments)} />
+            <PieChartBlock data={getInvestmentAllocation(data.investments, "category")} />
           </Panel>
         </div>
       ) : null}
@@ -1128,7 +1148,7 @@ function ReportsPage() {
           </ChartBox>
         </Panel>
         <Panel title="Relatório por categoria">{categories.length ? <PieChartBlock data={categories.map((item) => ({ name: item.name, value: item.value }))} /> : <EmptyState title="Sem categorias com gasto" text="Cadastre ou importe transações para gerar este relatório." />}</Panel>
-        <Panel title="Relatório de investimentos">{data.investments.length ? <PieChartBlock data={getInvestmentAllocation(data.investments, "ticker")} /> : <EmptyState title="Sem investimentos" text="Cadastre ativos para acompanhar a carteira." />}</Panel>
+        <Panel title="Relatório de investimentos por categoria">{getPortfolioInvestments(data.investments).length ? <PieChartBlock data={getInvestmentAllocation(data.investments, "category")} /> : <EmptyState title="Sem investimentos" text="Atualize as categorias da carteira para acompanhar o patrimônio." />}</Panel>
         <Panel title="FIIs e dividendos">
           <ChartBox>
             <ResponsiveContainer>
@@ -1261,6 +1281,8 @@ function TransactionForm({ transaction, data, onSave }: { transaction: Transacti
   const visibleCategories = categories.length ? categories : data.categories;
   const showPayment = draft.type === "expense" || draft.type === "credit";
   const showRecurring = draft.type !== "transfer" && draft.type !== "investment";
+  const fiiAssets = data.investments.filter((asset) => asset.assetType === "fii" && asset.trackingMode !== "category_summary");
+  const isFiiDividend = draft.type === "income" && draft.investmentIncomeType === "fii_dividend";
 
   function updateType(type: TransactionType) {
     const nextCategories = data.categories.filter((category) => {
@@ -1276,11 +1298,23 @@ function TransactionForm({ transaction, data, onSave }: { transaction: Transacti
       destinationAccountId: type === "transfer" ? current.destinationAccountId ?? data.accounts.find((account) => account.id !== current.accountId)?.id : undefined,
       paymentMethod: type === "expense" || type === "credit" ? current.paymentMethod || "Cartão" : "Manual",
       installment: type === "expense" || type === "credit" ? current.installment : undefined,
+      investmentIncomeType: type === "income" ? current.investmentIncomeType : undefined,
+      investmentAssetId: type === "income" ? current.investmentAssetId : undefined,
     }));
   }
 
   return (
-    <form className="form-grid smart-form" onSubmit={(event) => { event.preventDefault(); onSave({ ...draft, amount: Math.max(0, Number(draft.amount)), recurring: showRecurring ? draft.recurring : false, installment: showPayment ? draft.installment : undefined }); }}>
+    <form className="form-grid smart-form" onSubmit={(event) => {
+      event.preventDefault();
+      onSave({
+        ...draft,
+        amount: Math.max(0, Number(draft.amount)),
+        recurring: showRecurring ? draft.recurring : false,
+        installment: showPayment ? draft.installment : undefined,
+        investmentIncomeType: isFiiDividend ? "fii_dividend" : undefined,
+        investmentAssetId: isFiiDividend ? draft.investmentAssetId : undefined,
+      });
+    }}>
       <div className="form-section span-2">
         <div className="form-section-title"><strong>Tipo do lançamento</strong><span>Mostramos somente os campos necessários.</span></div>
         <div className="type-picker transaction-type-picker">
@@ -1325,6 +1359,36 @@ function TransactionForm({ transaction, data, onSave }: { transaction: Transacti
           <input value={draft.counterparty ?? ""} onChange={(event) => setDraft({ ...draft, counterparty: event.target.value })} placeholder={draft.type === "expense" ? "Ex: Mercado, farmácia" : "Opcional"} />
         </label>
       )}
+      {draft.type === "income" ? (
+        <>
+          <label className="check-row switch-row span-2">
+            <input
+              type="checkbox"
+              checked={isFiiDividend}
+              disabled={!fiiAssets.length}
+              onChange={(event) => {
+                const dividendCategory = data.categories.find((category) => normalizeCategoryName(category.name) === "dividendos");
+                setDraft({
+                  ...draft,
+                  investmentIncomeType: event.target.checked ? "fii_dividend" : undefined,
+                  investmentAssetId: event.target.checked ? draft.investmentAssetId || fiiAssets[0]?.id : undefined,
+                  categoryId: event.target.checked && dividendCategory ? dividendCategory.id : draft.categoryId,
+                  paymentMethod: event.target.checked ? "Provento de FII" : draft.paymentMethod,
+                });
+              }}
+            />
+            <span><strong>Esta receita é rendimento de FII</strong><small>O valor recebido também entrará no painel de proventos.</small></span>
+          </label>
+          {isFiiDividend ? (
+            <label className="span-2">FII que pagou o rendimento
+              <select value={draft.investmentAssetId ?? ""} onChange={(event) => setDraft({ ...draft, investmentAssetId: event.target.value })} required>
+                <option value="">Selecione o FII</option>
+                {fiiAssets.map((asset) => <option value={asset.id} key={asset.id}>{normalizeTicker(asset.ticker) || asset.name} · {asset.name}</option>)}
+              </select>
+            </label>
+          ) : !fiiAssets.length ? <span className="muted-inline span-2">Cadastre um FII em Investimentos detalhados para vincular rendimentos.</span> : null}
+        </>
+      ) : null}
       {showPayment ? (
         <>
           <label>Forma de pagamento
@@ -1350,6 +1414,7 @@ function TransactionForm({ transaction, data, onSave }: { transaction: Transacti
 
 function TransactionMobileList({
   transactions,
+  investments,
   categoryMap,
   selected,
   onToggle,
@@ -1357,6 +1422,7 @@ function TransactionMobileList({
   onDelete,
 }: {
   transactions: Transaction[];
+  investments: InvestmentAsset[];
   categoryMap: Map<string, Category>;
   selected: string[];
   onToggle: (id: string, checked: boolean) => void;
@@ -1378,7 +1444,7 @@ function TransactionMobileList({
             <div className="transaction-mobile-copy">
               <strong>{transaction.description || "Sem descrição"}</strong>
               <span>{formatDate(transaction.date)} · {category?.name ?? "Sem categoria"}</span>
-              <small>{statusLabel(transaction.status)}{transaction.recurring ? " · Recorrente" : ""}</small>
+              <small>{transactionFiiIncomeLabel(transaction, investments) || statusLabel(transaction.status)}{transaction.recurring ? " · Recorrente" : ""}</small>
             </div>
             <strong className={`transaction-mobile-amount ${outgoing ? "amount-negative" : transaction.type === "transfer" ? "" : "amount-positive"}`}>
               {outgoing ? "−" : transaction.type === "transfer" ? "" : "+"}{formatCurrency(transaction.amount)}
@@ -1607,12 +1673,14 @@ function InvestmentForm({ asset, categories, onSave }: { asset: InvestmentAsset;
       hasFgc: draft.assetType === "cdb" || draft.assetType === "lci_lca" ? Boolean(draft.hasFgc) : undefined,
       cnpj: fundAsset ? draft.cnpj?.trim() || undefined : undefined,
       managementFee: fundAsset ? Number(draft.managementFee) || undefined : undefined,
+      trackingMode: "maturity_detail",
       notes: draft.notes?.trim(),
     });
   }
 
   return (
     <form className="form-grid smart-form investment-form" onSubmit={submit}>
+      <div className="inline-alert span-2">Cadastro detalhado para acompanhar vencimento e renovação. Os totais do patrimônio são atualizados separadamente por categoria.</div>
       <div className="form-section span-2">
         <div className="form-section-title"><strong>Tipo de investimento</strong><span>Cada opção pede somente as informações relevantes.</span></div>
         <label className="span-2">Tipo
@@ -1643,7 +1711,7 @@ function InvestmentForm({ asset, categories, onSave }: { asset: InvestmentAsset;
           <label>Valor aplicado<input type="number" inputMode="decimal" min="0" step="0.01" value={investedValue || ""} onChange={(event) => updateInvestedValue(Number(event.target.value))} required /></label>
           <label>Valor atual<input type="number" inputMode="decimal" min="0" step="0.01" value={currentValue || ""} onChange={(event) => updateCurrentValue(Number(event.target.value))} placeholder="Opcional" /></label>
           <label>Data de aplicação<input type="date" value={draft.buyDate} onChange={(event) => setDraft({ ...draft, buyDate: event.target.value })} /></label>
-          <label>Vencimento<input type="date" value={draft.maturityDate ?? ""} onChange={(event) => setDraft({ ...draft, maturityDate: event.target.value || undefined })} /></label>
+          <label>Vencimento<input type="date" value={draft.maturityDate ?? ""} onChange={(event) => setDraft({ ...draft, maturityDate: event.target.value || undefined })} required /></label>
           <label>Instituição / emissor<input value={draft.broker ?? ""} onChange={(event) => setDraft({ ...draft, broker: event.target.value })} placeholder="Ex: C6, Nubank, Tesouro Nacional" /></label>
           <label>Rentabilidade
             <select value={draft.rateType ?? "cdi"} onChange={(event) => setDraft({ ...draft, rateType: event.target.value as InvestmentAsset["rateType"] })}>
@@ -1720,26 +1788,26 @@ function GoalForm({ goal, categories, onSave }: { goal: Goal; categories: Catego
 }
 
 function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset[]; onEdit: (asset: InvestmentAsset) => void; onDelete: (id: string) => void }) {
-  if (!assets.length) return <EmptyState title="Nenhum investimento cadastrado" text="Cadastre ativos manualmente ou use a importação por imagem para montar a carteira." />;
+  if (!assets.length) return <EmptyState title="Nenhum investimento detalhado" text="Cadastre aplicações individuais para controlar vencimentos e renovações." />;
+  const orderedAssets = assets.slice().sort((a, b) => {
+    if (a.maturityDate && b.maturityDate) return a.maturityDate.localeCompare(b.maturityDate);
+    if (a.maturityDate) return -1;
+    if (b.maturityDate) return 1;
+    return a.name.localeCompare(b.name, "pt-BR");
+  });
   return (
     <>
       <div className="investment-mobile-list">
-        {assets.map((asset) => {
-          const result = asset.currentValue + asset.dividends - asset.investedValue;
+        {orderedAssets.map((asset) => {
           const unitAsset = isUnitPricedAsset(asset.assetType);
           const title = unitAsset && asset.ticker ? normalizeTicker(asset.ticker) : asset.name || asset.ticker;
           const subtitle = unitAsset ? [asset.name, asset.broker].filter((item) => item && item !== title).join(" · ") : [asset.broker, asset.category].filter(Boolean).join(" · ");
-          const metrics = unitAsset
-            ? [
-              { label: "Qtd.", value: String(asset.quantity) },
-              { label: "PM", value: formatCurrency(asset.averagePrice) },
-              { label: asset.assetType === "fii" ? "Cota" : "Preço", value: formatCurrency(asset.currentPrice) },
-            ]
-            : [
-              { label: "Investido", value: formatCurrency(asset.investedValue) },
-              { label: "Atual", value: formatCurrency(asset.currentValue) },
-              { label: formatInvestmentRate(asset) ? "Taxa" : "Aplicação", value: formatInvestmentRate(asset) || formatDate(asset.buyDate) },
-            ];
+          const status = getMaturityStatus(asset.maturityDate);
+          const metrics = [
+            { label: "Categoria", value: asset.category || assetTypeLabel(asset.assetType) },
+            { label: "Aplicação", value: formatDate(asset.buyDate) },
+            { label: "Vencimento", value: asset.maturityDate ? formatDate(asset.maturityDate) : "Sem prazo" },
+          ];
           return (
             <article className="investment-mobile-card" key={asset.id}>
               <div className="investment-mobile-head">
@@ -1751,7 +1819,7 @@ function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset
               </div>
               <div className="investment-mobile-metrics">
                 {metrics.map((metric) => <span key={metric.label}>{metric.label}<strong>{metric.value}</strong></span>)}
-                <span>Total<strong className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatCurrency(result)}</strong></span>
+                <span>Status<strong style={{ color: status.color }}>{status.label}</strong></span>
               </div>
               <div className="row-actions">
                 <button className="icon-button" type="button" onClick={() => onEdit(asset)} aria-label={`Editar ${title}`}><Edit3 size={16} /></button>
@@ -1765,29 +1833,31 @@ function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset
         <table className="data-table">
           <thead>
             <tr>
-              <th>Ativo</th>
+              <th>Aplicação</th>
               <th>Tipo</th>
-              <th>Qtd.</th>
-              <th>Preço médio</th>
-              <th>Preço atual</th>
-              <th>Resultado</th>
+              <th>Categoria</th>
+              <th>Instituição</th>
+              <th>Data da aplicação</th>
+              <th>Vencimento</th>
+              <th>Status</th>
               <th>Ações</th>
             </tr>
           </thead>
           <tbody>
-            {assets.map((asset) => {
-              const result = asset.currentValue + asset.dividends - asset.investedValue;
+            {orderedAssets.map((asset) => {
               const unitAsset = isUnitPricedAsset(asset.assetType);
               const title = unitAsset && asset.ticker ? normalizeTicker(asset.ticker) : asset.name || asset.ticker;
-              const subtitle = unitAsset ? asset.name : [asset.broker, asset.category].filter(Boolean).join(" · ");
+              const subtitle = unitAsset ? asset.name : formatInvestmentRate(asset);
+              const status = getMaturityStatus(asset.maturityDate);
               return (
               <tr key={asset.id}>
                 <td><strong>{title}</strong>{subtitle ? <span>{subtitle}</span> : null}</td>
                 <td>{assetTypeLabel(asset.assetType)}</td>
-                <td>{unitAsset ? asset.quantity : "1"}</td>
-                <td>{unitAsset ? formatCurrency(asset.averagePrice) : formatCurrency(asset.investedValue)}</td>
-                <td>{unitAsset ? formatCurrency(asset.currentPrice) : formatCurrency(asset.currentValue)}</td>
-                <td className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatCurrency(result)}</td>
+                <td>{asset.category || "Sem categoria"}</td>
+                <td>{asset.broker || "Não informada"}</td>
+                <td>{formatDate(asset.buyDate)}</td>
+                <td>{asset.maturityDate ? formatDate(asset.maturityDate) : "Sem vencimento"}</td>
+                <td><Pill color={status.color}>{status.label}</Pill></td>
                 <td>
                   <div className="row-actions">
                       <button className="icon-button" type="button" onClick={() => onEdit(asset)} aria-label={`Editar ${title}`}><Edit3 size={16} /></button>
@@ -1804,16 +1874,18 @@ function InvestmentTable({ assets, onEdit, onDelete }: { assets: InvestmentAsset
   );
 }
 
-function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentAsset[]; quotes: Record<string, FundQuote>; loading: boolean; error: string }) {
+function FiiRadarPanel({ assets, dividends, quotes, loading, error }: { assets: InvestmentAsset[]; dividends: DividendIncome[]; quotes: Record<string, FundQuote>; loading: boolean; error: string }) {
   if (!assets.length) return <EmptyState title="Nenhum FII cadastrado" text="Cadastre FIIs para comparar preço médio, cota atual, valorização e proventos." />;
 
   const rows = assets.map((asset) => {
     const quote = quotes[normalizeTicker(asset.ticker)];
     const currentPrice = quote?.price ?? asset.currentPrice;
     const currentValue = asset.quantity * currentPrice;
+    const recordedDividends = dividends.filter((dividend) => dividend.assetId === asset.id).reduce((sum, dividend) => sum + dividend.amount, 0);
+    const assetDividends = recordedDividends || asset.dividends;
     const quoteReturn = asset.averagePrice > 0 ? (currentPrice - asset.averagePrice) / asset.averagePrice : 0;
-    const totalReturn = asset.investedValue > 0 ? (currentValue + asset.dividends - asset.investedValue) / asset.investedValue : 0;
-    const dividendReturn = asset.investedValue > 0 ? asset.dividends / asset.investedValue : 0;
+    const totalReturn = asset.investedValue > 0 ? (currentValue + assetDividends - asset.investedValue) / asset.investedValue : 0;
+    const dividendReturn = asset.investedValue > 0 ? assetDividends / asset.investedValue : 0;
 
     return {
       asset,
@@ -1821,6 +1893,7 @@ function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentA
       ticker: normalizeTicker(asset.ticker),
       currentPrice,
       currentValue,
+      dividends: assetDividends,
       quoteReturn,
       totalReturn,
       dividendReturn,
@@ -1829,7 +1902,8 @@ function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentA
 
   const totalInvested = rows.reduce((sum, row) => sum + row.asset.investedValue, 0);
   const totalCurrent = rows.reduce((sum, row) => sum + row.currentValue, 0);
-  const totalDividends = rows.reduce((sum, row) => sum + row.asset.dividends, 0);
+  const fiiAssetIds = new Set(assets.map((asset) => asset.id));
+  const totalDividends = dividends.filter((dividend) => fiiAssetIds.has(dividend.assetId)).reduce((sum, dividend) => sum + dividend.amount, 0);
   const totalReturn = totalInvested > 0 ? (totalCurrent + totalDividends - totalInvested) / totalInvested : 0;
   const source = rows.find((row) => row.quote)?.quote;
   const chartData = rows.map((row) => ({
@@ -1901,7 +1975,15 @@ function FiiRadarPanel({ assets, quotes, loading, error }: { assets: InvestmentA
   );
 }
 
-function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
+interface InvestmentCategorySummaryUpdate {
+  category: string;
+  currentValue: number;
+  investedValue?: number;
+  assetType?: InvestmentAsset["assetType"];
+  sourceText?: string;
+}
+
+function InvestmentScreenshotUpdater({ assets, onSaveCategories }: { assets: InvestmentAsset[]; onSaveCategories: (summaries: InvestmentCategorySummaryUpdate[]) => void }) {
   const [analysis, setAnalysis] = useState<InvestmentImageAnalysis | null>(null);
   const [preview, setPreview] = useState<InvestmentUpdatePreview[]>([]);
   const [confirmed, setConfirmed] = useState("");
@@ -1934,14 +2016,12 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
     }
   }
 
-  if (!assets.length) return <EmptyState title="Sem ativos cadastrados" text="Cadastre seus investimentos antes de atualizar por print." />;
-
   return (
     <div className="screenshot-updater">
       <label className="upload-zone compact-upload">
         <Upload size={22} />
-        <strong>Enviar print da carteira</strong>
-        <span>O app lê o texto do print no próprio navegador e prepara a atualização para você confirmar.</span>
+        <strong>Enviar print com totais por categoria</strong>
+        <span>Envie telas com Limite Garantido, Renda Fixa, FIIs, Fundos e outras categorias já consolidadas.</span>
         <input type="file" accept="image/*" multiple onChange={handleFiles} />
       </label>
       {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Lendo print com OCR local...</div> : null}
@@ -1951,9 +2031,9 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
         <div className="ai-result-list">
           <strong>{analysis.summary}</strong>
           {preview.length ? preview.map((item) => (
-            <div className="ai-result-row" key={`${item.asset.id}-${item.sourceText}`}>
+            <div className="ai-result-row" key={`${item.category}-${item.sourceText}`}>
               <div>
-                <strong>{item.label}</strong>
+                <strong>{item.category}</strong>
                 <span>{item.sourceText}</span>
               </div>
               <div className="ai-result-values">
@@ -1969,8 +2049,8 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
               className="primary-button"
               type="button"
               onClick={() => {
-                applyInvestmentPreviewUpdates(preview, onUpdate);
-                setConfirmed(`${preview.length} atualização(ões) confirmada(s).`);
+                applyInvestmentPreviewUpdates(preview, onSaveCategories);
+                setConfirmed(`${preview.length} categoria(s) atualizada(s) sem duplicar as aplicações detalhadas.`);
                 setPreview([]);
               }}
             >
@@ -1985,70 +2065,99 @@ function InvestmentScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentA
 }
 
 interface InvestmentUpdatePreview {
-  asset: InvestmentAsset;
-  label: string;
+  category: string;
+  assetType: InvestmentAsset["assetType"];
   sourceText: string;
   confidence: number;
-  quantity: number;
-  averagePrice: number;
   investedValue: number;
-  currentPrice: number;
-  currentValue: number;
-  dividends: number;
   previousValue: number;
   nextValue: number;
   delta: number;
 }
 
 function buildInvestmentUpdatePreview(result: InvestmentImageAnalysis, assets: InvestmentAsset[]) {
-  return result.updates.flatMap((update) => {
-    if (update.confidence < 0.55) return [];
-    const asset = findInvestmentUpdateAsset(update, assets);
-    if (!asset) return [];
+  const grouped = new Map<string, {
+    category: string;
+    assetType: InvestmentAsset["assetType"];
+    investedValue: number;
+    nextValue: number;
+    confidence: number;
+    sourceTexts: string[];
+    explicitSummary: boolean;
+  }>();
 
-    const quantity = finiteOr(update.quantity, asset.quantity);
-    const averagePrice = finiteOr(update.averagePrice, asset.averagePrice);
-    const investedValue = asset.assetType === "fii" && quantity > 0 && averagePrice > 0 ? quantity * averagePrice : asset.investedValue;
-    const inferredPrice = update.currentPrice ?? (update.currentValue && quantity > 0 ? update.currentValue / quantity : null);
-    const currentPrice = finiteOr(inferredPrice, asset.currentPrice);
-    const currentValue = finiteOr(update.currentValue, quantity * currentPrice);
-    const dividends = finiteOr(update.dividends, asset.dividends);
-
-    return [{
-      asset,
-      label: normalizeTicker(asset.ticker) || asset.name,
-      sourceText: update.sourceText,
-      confidence: update.confidence,
-      quantity,
-      averagePrice,
-      investedValue,
-      currentPrice,
-      currentValue,
-      dividends,
-      previousValue: asset.currentValue,
-      nextValue: currentValue,
-      delta: currentValue - asset.currentValue,
-    }];
+  result.updates.forEach((update) => {
+    if (update.confidence < 0.55) return;
+    const matchedAsset = findInvestmentUpdateAsset(update, assets);
+    const category = update.category?.trim()
+      || matchedAsset?.category?.trim()
+      || (update.scope === "category_summary" ? update.name?.trim() : "")
+      || (update.assetType ? assetTypeLabel(update.assetType) : "");
+    if (!category) return;
+    const key = normalizeCategoryName(category);
+    const explicitSummary = update.scope === "category_summary";
+    const updateValue = finiteOr(update.currentValue, matchedAsset?.currentValue ?? 0);
+    const updateInvested = explicitSummary
+      ? finiteOr(update.investedValue ?? update.averagePrice, 0)
+      : finiteOr(update.investedValue ?? update.averagePrice, matchedAsset?.investedValue ?? updateValue);
+    const current = grouped.get(key);
+    if (!current || explicitSummary) {
+      grouped.set(key, {
+        category,
+        assetType: update.assetType ?? matchedAsset?.assetType ?? "other",
+        investedValue: updateInvested,
+        nextValue: updateValue,
+        confidence: update.confidence,
+        sourceTexts: [update.sourceText],
+        explicitSummary,
+      });
+      return;
+    }
+    if (current.explicitSummary) return;
+    current.investedValue += updateInvested;
+    current.nextValue += updateValue;
+    current.confidence = Math.min(current.confidence, update.confidence);
+    current.sourceTexts.push(update.sourceText);
   });
+
+  const portfolioAssets = getPortfolioInvestments(assets);
+  return [...grouped.values()].map((group) => {
+    const existing = portfolioAssets.find((asset) => sameCategory(asset.category, group.category));
+    const investedValue = group.explicitSummary && group.investedValue > 0
+      ? group.investedValue
+      : existing?.investedValue ?? group.investedValue ?? group.nextValue;
+    const previousValue = existing?.currentValue ?? 0;
+    return {
+      category: group.category,
+      assetType: group.assetType,
+      sourceText: group.sourceTexts.join(" || "),
+      confidence: group.confidence,
+      investedValue,
+      previousValue,
+      nextValue: group.nextValue,
+      delta: group.nextValue - previousValue,
+    };
+  }).sort((a, b) => a.category.localeCompare(b.category, "pt-BR"));
 }
 
 function getUnmatchedInvestmentUpdates(result: InvestmentImageAnalysis, assets: InvestmentAsset[]) {
   return result.updates
-    .filter((update) => update.confidence >= 0.55 && !findInvestmentUpdateAsset(update, assets))
+    .filter((update) => update.confidence >= 0.55 && !update.category && !findInvestmentUpdateAsset(update, assets) && !update.assetType)
     .map((update) => update.name || normalizeTicker(update.ticker) || update.sourceText)
     .filter(Boolean);
 }
 
 function findInvestmentUpdateAsset(update: InvestmentImageUpdate, assets: InvestmentAsset[]) {
+  const detailedAssets = getDetailedInvestments(assets);
   const ticker = normalizeTicker(update.ticker);
   if (ticker) {
-    const tickerMatch = assets.find((item) => normalizeTicker(item.ticker) === ticker);
+    const tickerMatch = detailedAssets.find((item) => normalizeTicker(item.ticker) === ticker);
     if (tickerMatch) return tickerMatch;
   }
 
   const updateName = normalizeInvestmentMatchText(update.name || update.sourceText);
   if (!updateName) return null;
-  return assets.find((asset) => {
+  return detailedAssets.find((asset) => {
     const assetName = normalizeInvestmentMatchText(`${asset.name} ${asset.ticker} ${asset.category ?? ""}`);
     return assetName === updateName || assetName.includes(updateName) || updateName.includes(assetName);
   }) ?? null;
@@ -2066,19 +2175,14 @@ function normalizeInvestmentMatchText(value: string) {
     .toLowerCase();
 }
 
-function applyInvestmentPreviewUpdates(preview: InvestmentUpdatePreview[], onUpdate: (asset: InvestmentAsset) => void) {
-  preview.forEach((item) => {
-    onUpdate({
-      ...item.asset,
-      quantity: item.quantity,
-      averagePrice: item.averagePrice,
+function applyInvestmentPreviewUpdates(preview: InvestmentUpdatePreview[], onSaveCategories: (summaries: InvestmentCategorySummaryUpdate[]) => void) {
+  onSaveCategories(preview.map((item) => ({
+      category: item.category,
+      assetType: item.assetType,
       investedValue: item.investedValue,
-      currentPrice: item.currentPrice,
-      currentValue: item.currentValue,
-      dividends: item.dividends,
-      notes: [item.asset.notes, `Atualizado por print com OCR local: ${item.sourceText}`].filter(Boolean).join("\n"),
-    });
-  });
+      currentValue: item.nextValue,
+      sourceText: item.sourceText,
+  })));
 }
 
 function finiteOr(value: number | null | undefined, fallback: number) {
@@ -2105,46 +2209,75 @@ function FiiQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpd
   );
 }
 
-function InvestmentCategoryQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
+function InvestmentCategoryQuickUpdate({ assets, onSaveCategory }: { assets: InvestmentAsset[]; onSaveCategory: (summary: InvestmentCategorySummaryUpdate) => void }) {
   const [drafts, setDrafts] = useState<Record<string, number>>(() => Object.fromEntries(assets.map((asset) => [asset.id, asset.currentValue])));
-  const groups = groupAssetsByCategory(assets);
 
   return (
     <div className="category-update-list">
-      {groups.map((group) => (
-        <div className="category-update-group" key={group.name}>
-          <div className="category-update-header">
-            <strong>{group.name}</strong>
-            <span>{group.assets.length} ativo(s) · {formatCurrency(group.assets.reduce((sum, asset) => sum + asset.currentValue, 0))}</span>
+      {assets.map((asset) => {
+        const nextValue = drafts[asset.id] ?? asset.currentValue;
+        const delta = nextValue - asset.currentValue;
+        const result = nextValue - asset.investedValue;
+        return (
+          <div className="list-row investment-update-row category-summary-update-row" key={asset.id}>
+            <div>
+              <strong>{asset.category || asset.name}</strong>
+              <span>Total consolidado · atualizado {formatDate(asset.updatedAt.slice(0, 10))}</span>
+            </div>
+            <div className="update-current">
+              <span>Atual salvo</span>
+              <strong>{formatCurrency(asset.currentValue)}</strong>
+            </div>
+            <label className="compact-value-field"><span>Novo total</span><input type="number" min="0" inputMode="decimal" step="0.01" value={nextValue} onChange={(event) => setDrafts({ ...drafts, [asset.id]: Number(event.target.value) })} /></label>
+            <div className="update-current">
+              <span>Variação</span>
+              <strong className={delta >= 0 ? "amount-positive" : "amount-negative"}>{delta >= 0 ? "+" : ""}{formatCurrency(delta)}</strong>
+              <small className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatPercent(asset.investedValue > 0 ? result / asset.investedValue : 0)}</small>
+            </div>
+            <button className="secondary-button" type="button" onClick={() => onSaveCategory({ category: asset.category || asset.name, currentValue: nextValue, investedValue: asset.investedValue, assetType: asset.assetType })}>Salvar</button>
           </div>
-          <div className="stack-list">
-            {group.assets.map((asset) => {
-              const nextValue = drafts[asset.id] ?? asset.currentValue;
-              const delta = nextValue - asset.currentValue;
-              const result = nextValue - asset.investedValue;
-              return (
-                <div className="list-row investment-update-row" key={asset.id}>
-                  <div>
-                    <strong>{asset.name}</strong>
-                    <span>{assetTypeLabel(asset.assetType)} · {asset.broker || "Instituição não informada"} · aplicação {formatDate(asset.buyDate)}</span>
-                  </div>
-                  <div className="update-current">
-                    <span>Atual salvo</span>
-                    <strong>{formatCurrency(asset.currentValue)}</strong>
-                  </div>
-                  <input type="number" step="0.01" value={nextValue} onChange={(event) => setDrafts({ ...drafts, [asset.id]: Number(event.target.value) })} />
-                  <div className="update-current">
-                    <span>Variação</span>
-                    <strong className={delta >= 0 ? "amount-positive" : "amount-negative"}>{delta >= 0 ? "+" : ""}{formatCurrency(delta)}</strong>
-                    <small className={result >= 0 ? "amount-positive" : "amount-negative"}>{formatPercent(asset.investedValue > 0 ? result / asset.investedValue : 0)}</small>
-                  </div>
-                  <button className="secondary-button" type="button" onClick={() => onUpdate({ ...asset, currentValue: nextValue, currentPrice: nextValue, quantity: asset.quantity || 1 })}>Salvar</button>
-                </div>
-              );
-            })}
+        );
+      })}
+    </div>
+  );
+}
+
+function InvestmentCategoryOverview({ assets }: { assets: InvestmentAsset[] }) {
+  if (!assets.length) return <EmptyState title="Sem totais por categoria" text="Envie um print consolidado ou atualize uma categoria manualmente." />;
+  return (
+    <div className="investment-category-overview">
+      {assets.slice().sort((a, b) => b.currentValue - a.currentValue).map((asset) => {
+        const result = asset.currentValue - asset.investedValue;
+        return (
+          <article className="investment-category-card" key={asset.id}>
+            <div><strong>{asset.category || asset.name}</strong><span>{assetTypeLabel(asset.assetType)}</span></div>
+            <strong>{formatCurrency(asset.currentValue)}</strong>
+            <span>Aplicado {formatCurrency(asset.investedValue)}</span>
+            <span className={result >= 0 ? "amount-positive" : "amount-negative"}>{result >= 0 ? "+" : ""}{formatCurrency(result)}</span>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function InvestmentMaturityAgenda({ assets }: { assets: InvestmentAsset[] }) {
+  const datedAssets = assets
+    .filter((asset) => asset.maturityDate)
+    .sort((a, b) => String(a.maturityDate).localeCompare(String(b.maturityDate)));
+  if (!datedAssets.length) return <EmptyState title="Nenhum vencimento informado" text="Edite os investimentos detalhados e informe o vencimento para acompanhar a renovação." />;
+  return (
+    <div className="stack-list">
+      {datedAssets.map((asset) => {
+        const status = getMaturityStatus(asset.maturityDate);
+        return (
+          <div className="list-row maturity-row" key={asset.id}>
+            <div><strong>{asset.name}</strong><span>{asset.category || assetTypeLabel(asset.assetType)} · {asset.broker || "Instituição não informada"}</span></div>
+            <div className="maturity-date"><span>Vencimento</span><strong>{formatDate(asset.maturityDate || "")}</strong></div>
+            <Pill color={status.color}>{status.label}</Pill>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -2350,6 +2483,19 @@ function sameCategory(left?: string, right?: string) {
   return normalizeCategoryName(left) === normalizeCategoryName(right);
 }
 
+function getMaturityStatus(maturityDate?: string) {
+  if (!maturityDate) return { label: "Sem vencimento", color: "#64748b" };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const maturity = new Date(`${maturityDate}T00:00:00`);
+  const days = Math.ceil((maturity.getTime() - today.getTime()) / 86_400_000);
+  if (days < 0) return { label: `Vencido há ${Math.abs(days)} dia(s)`, color: "#fb7185" };
+  if (days === 0) return { label: "Vence hoje", color: "#f97316" };
+  if (days <= 30) return { label: `Vence em ${days} dia(s)`, color: "#fbbf24" };
+  if (days <= 90) return { label: `Próximo · ${days} dias`, color: "#38bdf8" };
+  return { label: `${days} dias`, color: "#34d399" };
+}
+
 function formatCategoryUsage(transactions: number, investments: number) {
   const parts = [];
   if (transactions) parts.push(`${transactions} transação(ões)`);
@@ -2357,15 +2503,10 @@ function formatCategoryUsage(transactions: number, investments: number) {
   return parts.length ? parts.join(" · ") : "sem uso";
 }
 
-function groupAssetsByCategory(assets: InvestmentAsset[]) {
-  const groups = new Map<string, InvestmentAsset[]>();
-  assets.forEach((asset) => {
-    const key = asset.category?.trim() || "Sem categoria";
-    groups.set(key, [...(groups.get(key) ?? []), asset]);
-  });
-  return [...groups.entries()]
-    .map(([name, groupedAssets]) => ({ name, assets: groupedAssets.sort((a, b) => a.name.localeCompare(b.name, "pt-BR")) }))
-    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+function transactionFiiIncomeLabel(transaction: Transaction, investments: InvestmentAsset[]) {
+  if (transaction.investmentIncomeType !== "fii_dividend" || !transaction.investmentAssetId) return "";
+  const asset = investments.find((item) => item.id === transaction.investmentAssetId);
+  return `Provento de FII · ${asset ? normalizeTicker(asset.ticker) || asset.name : "FII não encontrado"}`;
 }
 
 function createEmptyTransaction(type: TransactionType, accountId = "acc-carteira-principal"): Transaction {
@@ -2412,6 +2553,7 @@ function createEmptyInvestment(): InvestmentAsset {
     rateValue: undefined,
     liquidity: "",
     hasFgc: true,
+    trackingMode: "maturity_detail",
     notes: "",
     createdAt: now,
     updatedAt: now,

@@ -840,6 +840,64 @@ label textarea {
   grid-template-columns: minmax(170px, 1fr) minmax(88px, 0.38fr) minmax(96px, 0.34fr) minmax(94px, 0.38fr) auto;
 }
 
+.compact-value-field {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.compact-value-field input {
+  width: 116px;
+}
+
+.investment-category-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.investment-category-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 12px;
+  padding: 14px;
+  border: 1px solid rgba(148, 184, 224, 0.14);
+  border-radius: var(--radius);
+  background: rgba(7, 11, 18, 0.26);
+}
+
+.investment-category-card > div,
+.investment-category-card > div span,
+.investment-category-card > span {
+  display: block;
+}
+
+.investment-category-card > div span,
+.investment-category-card > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.investment-category-card > strong,
+.investment-category-card > span:last-child {
+  text-align: right;
+}
+
+.maturity-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.maturity-date span,
+.maturity-date strong {
+  display: block;
+}
+
+.maturity-date span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .warning-alert {
   border-color: rgba(251, 191, 36, 0.34);
   color: #fde68a;
@@ -2483,6 +2541,10 @@ button:disabled:hover {
     width: 86px;
   }
 
+  .compact-value-field input {
+    width: 100%;
+  }
+
   .category-update-header {
     align-items: flex-start;
     flex-direction: column;
@@ -3828,6 +3890,18 @@ button:disabled:hover {
 
   .investment-update-row input {
     width: 100%;
+  }
+
+  .investment-category-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .maturity-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .maturity-row > div:first-child {
+    grid-column: 1 / -1;
   }
 
   .upload-zone,

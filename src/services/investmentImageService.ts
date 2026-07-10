@@ -1,7 +1,10 @@
 import type { AssetType, InvestmentAsset } from "../types";
+import { parseInvestmentCategoryText } from "../utils/investmentImageParser";
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "./supabaseClient";
 
 export interface InvestmentImageUpdate {
+  scope?: "category_summary" | "maturity_detail";
+  category?: string | null;
   ticker: string;
   name: string | null;
   assetType: AssetType | null;
@@ -9,6 +12,7 @@ export interface InvestmentImageUpdate {
   averagePrice: number | null;
   currentPrice: number | null;
   currentValue: number | null;
+  investedValue?: number | null;
   dividends: number | null;
   confidence: number;
   sourceText: string;
@@ -60,6 +64,8 @@ export async function analyzeInvestmentScreenshots(files: File[], assets: Invest
         ticker: normalizeTicker(asset.ticker),
         name: asset.name,
         assetType: asset.assetType,
+        category: asset.category,
+        trackingMode: asset.trackingMode,
         quantity: asset.quantity,
         averagePrice: asset.averagePrice,
         currentPrice: asset.currentPrice,
@@ -86,12 +92,32 @@ async function analyzeWithLocalOcr(files: File[], assets: InvestmentAsset[]): Pr
     }
 
     const ocrText = texts.join("\n");
-    const updates = dedupeInvestmentUpdates([
+    const categoryUpdates: InvestmentImageUpdate[] = parseInvestmentCategoryText(ocrText, assets).map((update) => ({
+      scope: "category_summary",
+      category: update.category,
+      ticker: "",
+      name: update.category,
+      assetType: update.assetType,
+      quantity: 1,
+      averagePrice: update.investedValue,
+      currentPrice: update.currentValue,
+      investedValue: update.investedValue,
+      currentValue: update.currentValue,
+      dividends: null,
+      confidence: update.confidence,
+      sourceText: update.sourceText,
+    }));
+    const detailedFallback = [
       ...parseCdbCardsFromText(ocrText),
       ...parseFiiCardsFromText(ocrText, assets),
-    ]);
+    ];
+    const updates = dedupeInvestmentUpdates(categoryUpdates.length ? categoryUpdates : detailedFallback);
     return {
-      summary: updates.length ? `${updates.length} investimento(s) identificado(s) por OCR local.` : "Nenhum investimento identificado por OCR local.",
+      summary: updates.length
+        ? categoryUpdates.length
+          ? `${updates.length} categoria(s) consolidada(s) identificada(s) por OCR local.`
+          : `${updates.length} item(ns) identificado(s) e agrupado(s) por categoria.`
+        : "Nenhuma categoria de investimento identificada por OCR local.",
       updates,
       unmatched: [],
     };
@@ -326,7 +352,7 @@ function parseOcrMoney(rawValue: string) {
 function dedupeInvestmentUpdates(updates: InvestmentImageUpdate[]) {
   const seen = new Set<string>();
   return updates.filter((update) => {
-    const key = `${normalizeTicker(update.ticker)}:${normalizeText(update.name || "")}:${update.currentValue}`;
+    const key = `${update.scope ?? "detail"}:${normalizeText(update.category || "")}:${normalizeTicker(update.ticker)}:${normalizeText(update.name || "")}:${update.currentValue}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

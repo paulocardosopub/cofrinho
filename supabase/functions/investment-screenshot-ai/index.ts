@@ -4,7 +4,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type AssetType = "fii" | "stock" | "fixed_income" | "cdb" | "crypto" | "fund" | "treasury" | "other";
+type AssetType = "fii" | "stock" | "fixed_income" | "cdb" | "lci_lca" | "crypto" | "fund" | "treasury" | "other";
 
 interface ScreenshotFile {
   name: string;
@@ -16,6 +16,8 @@ interface Holding {
   ticker: string;
   name: string;
   assetType: AssetType;
+  category?: string;
+  trackingMode?: "category_summary" | "maturity_detail";
   quantity: number;
   averagePrice: number;
   currentPrice: number;
@@ -27,6 +29,8 @@ interface InvestmentAnalysis {
   summary: string;
   unmatched: string[];
   updates: Array<{
+    scope: "category_summary";
+    category: string;
     ticker: string;
     name: string | null;
     assetType: AssetType | null;
@@ -34,6 +38,7 @@ interface InvestmentAnalysis {
     averagePrice: number | null;
     currentPrice: number | null;
     currentValue: number | null;
+    investedValue: number | null;
     dividends: number | null;
     confidence: number;
     sourceText: string;
@@ -172,8 +177,10 @@ function systemPrompt() {
   return [
     "Você extrai dados de investimentos de prints de bancos e corretoras brasileiras.",
     "Não invente valores. Use números em BRL como number com ponto decimal.",
-    "Em prints de CDB, Renda Fixa ou fundos sem ticker, use ticker como string vazia, name como o nome visível do produto, currentValue como Saldo bruto e dividends como Rendimento bruto.",
-    "Para esses ativos sem ticker, use quantity 1 e currentPrice igual ao currentValue quando não houver quantidade.",
+    "Os prints enviados mostram valores já consolidados por categoria, não por aplicação individual.",
+    "Retorne exatamente uma atualização para cada categoria visível, como Limite Garantido, Renda Fixa, CDB, FIIs, Fundos, Ações, Tesouro ou Cripto.",
+    "Use currentValue como o total atual da categoria e investedValue como o total aplicado quando estiver visível.",
+    "Não separe CDBs, títulos, fundos ou outras aplicações individuais dentro de uma categoria.",
     "Quando a confiança for baixa, mantenha campos ausentes como null.",
   ].join(" ");
 }
@@ -182,22 +189,25 @@ function userPrompt(holdings: Holding[]) {
   return `Ativos já cadastrados no app:
 ${JSON.stringify(holdings)}
 
-Extraia holdings e atualizações visíveis nos prints. Foque em FIIs, CDBs, fundos, ações, tesouro e crypto.
-Para telas como C6 Bank com "Saldo bruto" e "Rendimento bruto", cada cartão é um investimento separado.
+Extraia os totais consolidados por categoria visíveis nos prints. Use as categorias já cadastradas como referência de nome, mas aceite novas categorias claramente visíveis.
+Nunca retorne aplicações individuais: some-as dentro da categoria somente quando o print não exibir o total pronto.
 Retorne somente JSON neste formato:
 {
   "summary": "resumo curto",
   "unmatched": ["ativos vistos sem par no cadastro"],
   "updates": [
     {
+      "scope": "category_summary",
+      "category": "Limite Garantido",
       "ticker": "",
-      "name": "nome do ativo",
-      "assetType": "cdb",
+      "name": "Limite Garantido",
+      "assetType": "fixed_income",
       "quantity": 1,
       "averagePrice": null,
       "currentPrice": 0,
       "currentValue": 0,
-      "dividends": 0,
+      "investedValue": null,
+      "dividends": null,
       "confidence": 0.9,
       "sourceText": "trecho visível do print"
     }
@@ -219,6 +229,8 @@ function openAiSchema() {
           type: "object",
           additionalProperties: false,
           required: [
+            "scope",
+            "category",
             "ticker",
             "name",
             "assetType",
@@ -226,18 +238,22 @@ function openAiSchema() {
             "averagePrice",
             "currentPrice",
             "currentValue",
+            "investedValue",
             "dividends",
             "confidence",
             "sourceText",
           ],
           properties: {
+            scope: { type: "string", enum: ["category_summary"] },
+            category: { type: "string" },
             ticker: { type: "string" },
             name: { type: ["string", "null"] },
-            assetType: { type: ["string", "null"], enum: ["fii", "stock", "fixed_income", "cdb", "crypto", "fund", "treasury", "other", null] },
+            assetType: { type: ["string", "null"], enum: ["fii", "stock", "fixed_income", "cdb", "lci_lca", "crypto", "fund", "treasury", "other", null] },
             quantity: { type: ["number", "null"] },
             averagePrice: { type: ["number", "null"] },
             currentPrice: { type: ["number", "null"] },
             currentValue: { type: ["number", "null"] },
+            investedValue: { type: ["number", "null"] },
             dividends: { type: ["number", "null"] },
             confidence: { type: "number", minimum: 0, maximum: 1 },
             sourceText: { type: "string" },
@@ -266,6 +282,8 @@ function parseAnalysis(outputText: string) {
     unmatched: Array.isArray(parsed.unmatched) ? parsed.unmatched.map(String) : [],
     updates: Array.isArray(parsed.updates)
       ? parsed.updates.map((update) => ({
+        scope: "category_summary" as const,
+        category: String(update.category ?? update.name ?? "Sem categoria"),
         ticker: String(update.ticker ?? ""),
         name: update.name ? String(update.name) : null,
         assetType: normalizeAssetType(update.assetType),
@@ -273,6 +291,7 @@ function parseAnalysis(outputText: string) {
         averagePrice: numberOrNull(update.averagePrice),
         currentPrice: numberOrNull(update.currentPrice),
         currentValue: numberOrNull(update.currentValue),
+        investedValue: numberOrNull(update.investedValue),
         dividends: numberOrNull(update.dividends),
         confidence: clamp(Number(update.confidence ?? 0), 0, 1),
         sourceText: String(update.sourceText ?? ""),
@@ -315,7 +334,7 @@ function dataUrlToBase64(dataUrl: string) {
 }
 
 function normalizeAssetType(value: unknown): AssetType | null {
-  const allowed: AssetType[] = ["fii", "stock", "fixed_income", "cdb", "crypto", "fund", "treasury", "other"];
+  const allowed: AssetType[] = ["fii", "stock", "fixed_income", "cdb", "lci_lca", "crypto", "fund", "treasury", "other"];
   return allowed.includes(value as AssetType) ? (value as AssetType) : null;
 }
 

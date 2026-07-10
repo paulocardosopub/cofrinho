@@ -4,6 +4,7 @@ export type TransactionSource = "manual" | "csv" | "image" | "ai";
 export type CategoryType = "income" | "expense" | "investment" | "credit" | "both";
 export type AssetType = "fii" | "stock" | "fixed_income" | "cdb" | "lci_lca" | "crypto" | "fund" | "treasury" | "other";
 export type InvestmentRateType = "pre" | "cdi" | "ipca" | "selic" | "other";
+export type InvestmentTrackingMode = "category_summary" | "maturity_detail";
 export type GoalStatus = "active" | "paused" | "completed";
 export type AppTheme = "light" | "dark";
 
@@ -45,6 +46,8 @@ export interface Transaction {
   counterparty?: string;
   destinationAccountId?: string;
   dueDate?: string;
+  investmentIncomeType?: "fii_dividend";
+  investmentAssetId?: string;
   status: TransactionStatus;
   notes?: string;
   tags: string[];
@@ -81,6 +84,7 @@ export interface InvestmentAsset {
   hasFgc?: boolean;
   cnpj?: string;
   managementFee?: number;
+  trackingMode?: InvestmentTrackingMode;
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -103,6 +107,7 @@ export interface DividendIncome {
   date: string;
   amount: number;
   description: string;
+  transactionId?: string;
 }
 
 export interface Goal {
@@ -145,6 +150,7 @@ export interface UserSettings {
   currency: "BRL";
   theme: AppTheme;
   visualVersion?: number;
+  investmentTrackingVersion?: number;
   dashboardPeriod: "month" | "quarter" | "year";
   notifications: boolean;
   aiAssistantName: string;

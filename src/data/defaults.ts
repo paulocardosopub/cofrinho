@@ -47,6 +47,7 @@ export const defaultSettings: UserSettings = {
   currency: "BRL",
   theme: "dark",
   visualVersion: 2,
+  investmentTrackingVersion: 1,
   dashboardPeriod: "month",
   notifications: true,
   aiAssistantName: "Guru do Cofrinho",
