@@ -175,6 +175,7 @@ export function assetTypeLabel(type: InvestmentAsset["assetType"]) {
     stock: "Ações",
     fixed_income: "Renda Fixa",
     cdb: "CDB",
+    lci_lca: "LCI / LCA",
     crypto: "Criptomoedas",
     fund: "Fundo de Investimento",
     treasury: "Tesouro Direto",

@@ -2,7 +2,8 @@ export type TransactionType = "income" | "expense" | "credit" | "investment" | "
 export type TransactionStatus = "paid" | "pending" | "planned";
 export type TransactionSource = "manual" | "csv" | "image" | "ai";
 export type CategoryType = "income" | "expense" | "investment" | "credit" | "both";
-export type AssetType = "fii" | "stock" | "fixed_income" | "cdb" | "crypto" | "fund" | "treasury" | "other";
+export type AssetType = "fii" | "stock" | "fixed_income" | "cdb" | "lci_lca" | "crypto" | "fund" | "treasury" | "other";
+export type InvestmentRateType = "pre" | "cdi" | "ipca" | "selic" | "other";
 export type GoalStatus = "active" | "paused" | "completed";
 export type AppTheme = "light" | "dark";
 
@@ -41,6 +42,9 @@ export interface Transaction {
   categoryId: string;
   accountId: string;
   paymentMethod: string;
+  counterparty?: string;
+  destinationAccountId?: string;
+  dueDate?: string;
   status: TransactionStatus;
   notes?: string;
   tags: string[];
@@ -71,6 +75,12 @@ export interface InvestmentAsset {
   maturityDate?: string;
   broker?: string;
   category?: string;
+  rateType?: InvestmentRateType;
+  rateValue?: number;
+  liquidity?: string;
+  hasFgc?: boolean;
+  cnpj?: string;
+  managementFee?: number;
   notes?: string;
   createdAt: string;
   updatedAt: string;
