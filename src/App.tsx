@@ -96,15 +96,20 @@ import {
   assetTypeLabel,
   calculateDashboard,
   calculateGoalProgress,
+  FII_CATEGORY_NAME,
   getCategoryMap,
   getDividendsByMonth,
   getDetailedInvestments,
+  getFiiInvestments,
   getInvestmentEvolution,
   getInvestmentAllocation,
+  getNonFiiInvestments,
   getPortfolioInvestments,
   getMonthlyCashflow,
   getPortfolioEvolution,
   groupExpensesByCategory,
+  isFiiCategoryName,
+  isFiiInvestment,
 } from "./utils/finance";
 import { formatCurrency, formatDate, formatPercent, toInputDate } from "./utils/format";
 
@@ -436,7 +441,8 @@ function DashboardPage() {
   const summary = calculateDashboard(data, month);
   const categories = groupExpensesByCategory(data.transactions, data.categories, month);
   const cashflow = getMonthlyCashflow(data.transactions, 6);
-  const allocation = getInvestmentAllocation(data.investments, "category");
+  const nonFiiInvestments = getNonFiiInvestments(data.investments);
+  const allocation = getInvestmentAllocation(nonFiiInvestments, "category");
   const investmentEvolution = getInvestmentEvolution(data.investments, data.dividends, 6);
   const fiiAssets = getDetailedInvestments(data.investments).filter((asset) => asset.assetType === "fii");
   const latest = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
@@ -529,8 +535,8 @@ function DashboardPage() {
         <Panel title="Despesas por categoria" mobileDefaultCollapsed>
           {categories.length ? <PieChartBlock data={categories.map((item) => ({ name: item.name, value: item.value }))} /> : <EmptyState title="Sem despesas no período" text="Importe transações ou cadastre uma saída para preencher este gráfico." />}
         </Panel>
-        <Panel title="Distribuição dos investimentos" mobileDefaultCollapsed>
-          {allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Carteira vazia" text="Cadastre seus FIIs, CDBs, ações ou crypto para acompanhar o patrimônio." />}
+        <Panel title="Distribuição dos outros investimentos" mobileDefaultCollapsed>
+          {allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Carteira vazia" text="Cadastre CDBs, renda fixa, ações ou outros investimentos para acompanhar a distribuição." />}
         </Panel>
         <div className="dashboard-wide">
           <Panel
@@ -861,6 +867,8 @@ function CategoriesPage() {
       }),
     [data.categories, data.investments, data.transactions],
   );
+  const generalUsage = usage.filter((category) => !isFiiCategoryName(category.name));
+  const fiiUsage = usage.filter((category) => isFiiCategoryName(category.name));
 
   function save(category: Category) {
     if (data.categories.some((item) => item.id === category.id)) updateCategory(category);
@@ -873,9 +881,29 @@ function CategoriesPage() {
 
   return (
     <Page title="Categorias" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyCategory())}><Plus size={17} />Nova categoria</button>}>
-      <Panel>
-        <div className="category-list">
-        {usage.map((category) => (
+      <Panel title="Categorias gerais">
+        <CategoryUsageRows categories={generalUsage} onEdit={setEditing} onDelete={deleteCategory} />
+      </Panel>
+      <Panel title="Categorias de FIIs" action={<Pill color="#a78bfa">separadas da carteira geral</Pill>}>
+        <div className="inline-alert">Estas categorias servem para aportes e proventos. As posições dos FIIs são organizadas por ticker na área exclusiva de FIIs.</div>
+        <CategoryUsageRows categories={fiiUsage} onEdit={setEditing} onDelete={deleteCategory} />
+      </Panel>
+      <Modal title={editing?.id ? "Editar categoria" : "Nova categoria"} open={Boolean(editing)} onClose={() => setEditing(null)}>
+        {editing ? <CategoryForm category={editing} onSave={save} /> : null}
+      </Modal>
+    </Page>
+  );
+}
+
+function CategoryUsageRows({ categories, onEdit, onDelete }: {
+  categories: Array<Category & { transactionCount: number; investmentCount: number; spent: number; invested: number; current: number }>;
+  onEdit: (category: Category) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (!categories.length) return <EmptyState title="Nenhuma categoria nesta seção" text="As categorias aparecerão aqui quando forem criadas ou importadas." />;
+  return (
+    <div className="category-list">
+      {categories.map((category) => (
           <article className="category-list-row" key={category.id}>
             <div className="category-main">
               <Pill color={category.color}><CategoryIcon name={category.icon} /></Pill>
@@ -900,7 +928,7 @@ function CategoriesPage() {
               <span style={{ width: `${category.investmentCount && category.invested ? Math.min((category.current / category.invested) * 100, 100) : category.monthlyBudget ? Math.min((category.spent / category.monthlyBudget) * 100, 100) : 0}%`, background: category.color }} />
             </div>
             <div className="row-actions">
-              <button className="icon-button" type="button" onClick={() => setEditing(category)} aria-label={`Editar ${category.name}`}><Edit3 size={16} /></button>
+              <button className="icon-button" type="button" onClick={() => onEdit(category)} aria-label={`Editar ${category.name}`}><Edit3 size={16} /></button>
               <button
                 className="icon-button danger-icon"
                 type="button"
@@ -908,7 +936,7 @@ function CategoriesPage() {
                 onClick={() => {
                   const inUse = category.transactionCount + category.investmentCount;
                   const message = inUse ? "Categoria em uso. Transações e investimentos serão realocados para Sem categoria, preservando os valores. Continuar?" : "Excluir categoria?";
-                  if (window.confirm(message)) deleteCategory(category.id);
+                  if (window.confirm(message)) onDelete(category.id);
                 }}
               >
                 <Trash2 size={16} />
@@ -916,30 +944,46 @@ function CategoriesPage() {
             </div>
           </article>
         ))}
-        </div>
-      </Panel>
-      <Modal title={editing?.id ? "Editar categoria" : "Nova categoria"} open={Boolean(editing)} onClose={() => setEditing(null)}>
-        {editing ? <CategoryForm category={editing} onSave={save} /> : null}
-      </Modal>
-    </Page>
+    </div>
   );
 }
 
 function InvestmentsPage() {
   const { data, addInvestment, updateInvestment, updateInvestmentCategorySummaries, deleteInvestment, addCategory, updateCategory, deleteCategory } = useRequiredData();
-  const [tab, setTab] = useState<"visao" | "atualizar" | "detalhados" | "fiis">("visao");
+  const [section, setSection] = useState<"investments" | "fiis">("investments");
+  const [investmentTab, setInvestmentTab] = useState<"summary" | "update" | "details" | "categories">("summary");
+  const [fiiTab, setFiiTab] = useState<"portfolio" | "update" | "income">("portfolio");
   const [editing, setEditing] = useState<InvestmentAsset | null>(null);
   const [categoryEditing, setCategoryEditing] = useState<Category | null>(null);
-  const summary = calculateDashboard(data);
-  const portfolioAssets = getPortfolioInvestments(data.investments);
-  const detailedAssets = getDetailedInvestments(data.investments);
-  const allocation = getInvestmentAllocation(data.investments, "category");
-  const fiiAssets = detailedAssets.filter((asset) => asset.assetType === "fii");
+  const nonFiiInvestments = getNonFiiInvestments(data.investments);
+  const fiiInvestments = getFiiInvestments(data.investments);
+  const portfolioAssets = getPortfolioInvestments(nonFiiInvestments);
+  const detailedAssets = getDetailedInvestments(nonFiiInvestments);
+  const fiiPortfolioAssets = getPortfolioInvestments(fiiInvestments);
+  const fiiAssets = getDetailedInvestments(fiiInvestments);
+  const fiiValueAssets = fiiAssets.length ? fiiAssets : fiiPortfolioAssets;
+  const allocation = getInvestmentAllocation(nonFiiInvestments, "category");
   const portfolioCategoryKeys = new Set(portfolioAssets.map((asset) => normalizeCategoryName(asset.category)));
   const investmentCategories = data.categories.filter(
-    (category) => category.type === "investment" || portfolioCategoryKeys.has(normalizeCategoryName(category.name)),
+    (category) => !isFiiCategoryName(category.name)
+      && (category.type === "investment" || portfolioCategoryKeys.has(normalizeCategoryName(category.name))),
   );
-  const portfolio = getPortfolioEvolution(data.investments, data.dividends);
+  const portfolio = getPortfolioEvolution(nonFiiInvestments, []);
+  const investedValue = portfolioAssets.reduce((total, asset) => total + asset.investedValue, 0);
+  const currentValue = portfolioAssets.reduce((total, asset) => total + asset.currentValue, 0);
+  const investmentResult = currentValue - investedValue;
+  const fiiInvestedValue = fiiValueAssets.reduce((total, asset) => total + asset.investedValue, 0);
+  const fiiCurrentValue = fiiValueAssets.reduce((total, asset) => total + asset.currentValue, 0);
+  const fiiAssetIds = new Set(fiiAssets.map((asset) => asset.id));
+  const fiiDividends = fiiAssets.reduce((total, asset) => {
+    const linked = data.dividends.filter((dividend) => dividend.assetId === asset.id).reduce((sum, dividend) => sum + dividend.amount, 0);
+    return total + (linked || asset.dividends);
+  }, 0);
+  const fiiResult = fiiCurrentValue + fiiDividends - fiiInvestedValue;
+  const fiiIncomeRows = data.dividends
+    .filter((dividend) => fiiAssetIds.has(dividend.assetId))
+    .slice()
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   function save(asset: InvestmentAsset) {
     const detailedAsset = { ...asset, trackingMode: "maturity_detail" as const };
@@ -961,26 +1005,67 @@ function InvestmentsPage() {
     setCategoryEditing(null);
   }
 
+  function startNewInvestment(assetType?: "fii") {
+    const empty = createEmptyInvestment();
+    setEditing(assetType === "fii"
+      ? { ...empty, assetType: "fii", category: FII_CATEGORY_NAME, quantity: 1 }
+      : empty);
+  }
+
   return (
-    <Page title="Investimentos" action={<button className="primary-button" type="button" onClick={() => setEditing(createEmptyInvestment())}><Plus size={17} />Novo detalhado</button>}>
-      <div className="stats-grid compact">
-        <StatCard icon={Landmark} label="Total investido" value={formatCurrency(summary.invested)} tone="blue" />
-        <StatCard icon={BadgeDollarSign} label="Valor atual" value={formatCurrency(summary.current)} tone="green" />
-        <StatCard icon={TrendingIcon} label="Resultado" value={formatCurrency(summary.investmentReturn)} tone={summary.investmentReturn >= 0 ? "green" : "red"} />
+    <Page
+      title="Investimentos"
+      action={(
+        <button className="primary-button" type="button" onClick={() => startNewInvestment(section === "fiis" ? "fii" : undefined)}>
+          <Plus size={17} />{section === "fiis" ? "Novo FII" : "Novo investimento"}
+        </button>
+      )}
+    >
+      <div className="investment-section-switch" role="tablist" aria-label="Área de investimentos">
+        <button className={section === "investments" ? "active" : ""} type="button" role="tab" aria-selected={section === "investments"} onClick={() => setSection("investments")}>
+          <Landmark size={20} />
+          <span><strong>Investimentos</strong><small>CDBs, renda fixa e outros</small></span>
+        </button>
+        <button className={section === "fiis" ? "active fii-active" : ""} type="button" role="tab" aria-selected={section === "fiis"} onClick={() => setSection("fiis")}>
+          <Building2 size={20} />
+          <span><strong>FIIs</strong><small>Cotas, posições e proventos</small></span>
+        </button>
       </div>
-      <Segmented value={tab} onChange={(value) => setTab(value as typeof tab)} items={[["visao", "Visão geral"], ["atualizar", "Atualizar investimentos"], ["detalhados", "Detalhados"], ["fiis", "FIIs"]]} />
-      {tab === "visao" ? (
+
+      {section === "investments" ? (
+        <>
+          <div className="stats-grid compact investment-stats">
+            <StatCard icon={Landmark} label="Total aplicado" value={formatCurrency(investedValue)} tone="blue" />
+            <StatCard icon={BadgeDollarSign} label="Valor acumulado" value={formatCurrency(currentValue)} tone="green" />
+            <StatCard icon={TrendingIcon} label="Rendimento" value={formatCurrency(investmentResult)} tone={investmentResult >= 0 ? "green" : "red"} />
+          </div>
+          <div className="investment-subnav">
+            <Segmented value={investmentTab} onChange={(value) => setInvestmentTab(value as typeof investmentTab)} items={[["summary", "Resumo"], ["update", "Atualizar"], ["details", "Aplicações"], ["categories", "Categorias"]]} />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="stats-grid compact investment-stats fii-stats">
+            <StatCard icon={Building2} label="Posição atual" value={formatCurrency(fiiCurrentValue)} tone="purple" />
+            <StatCard icon={BadgeDollarSign} label="Proventos" value={formatCurrency(fiiDividends)} tone="green" />
+            <StatCard icon={TrendingIcon} label="Retorno total" value={formatCurrency(fiiResult)} tone={fiiResult >= 0 ? "green" : "red"} />
+          </div>
+          <div className="investment-subnav fii-subnav">
+            <Segmented value={fiiTab} onChange={(value) => setFiiTab(value as typeof fiiTab)} items={[["portfolio", "Carteira"], ["update", "Atualizar"], ["income", "Proventos"]]} />
+          </div>
+        </>
+      )}
+
+      {section === "investments" && investmentTab === "summary" ? (
         <div className="two-column">
-          <Panel title="Visão geral por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
+          <Panel title="Valores acumulados por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
             <InvestmentCategoryOverview assets={portfolioAssets} />
           </Panel>
-          <Panel title="FIIs acumulados por ativo" action={<Pill>{fiiAssets.length} posição(ões)</Pill>}>
-            <InvestmentFiiOverview assets={fiiAssets} dividends={data.dividends} />
-          </Panel>
-          <Panel title="Distribuição por categoria">
+          <Panel title="Distribuição dos investimentos">
             {allocation.length ? <PieChartBlock data={allocation} /> : <EmptyState title="Sem categorias atualizadas" text="Use Atualizar investimentos para informar os totais da carteira." />}
           </Panel>
-          <Panel title="Evolução da carteira" mobileDefaultCollapsed>
+          <div className="dashboard-wide">
+          <Panel title="Comparação do valor aplicado e atual" mobileDefaultCollapsed>
             <ChartBox>
               <ResponsiveContainer>
                 <LineChart data={portfolio} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
@@ -993,54 +1078,31 @@ function InvestmentsPage() {
               </ResponsiveContainer>
             </ChartBox>
           </Panel>
-          <div className="dashboard-wide">
-            <Panel
-              title="Administrar categorias de investimentos"
-              action={<button className="primary-button" type="button" onClick={() => setCategoryEditing(createEmptyCategory("investment"))}><Plus size={17} />Nova categoria</button>}
-            >
-              <CategoryAdminList
-                categories={investmentCategories}
-                onEdit={setCategoryEditing}
-                onDelete={(category) => {
-                  const inUse = data.investments.some((asset) => sameCategory(asset.category, category.name));
-                  const message = inUse ? "Categoria em uso. Os investimentos serão movidos para Sem categoria, preservando os totais. Continuar?" : "Excluir esta categoria?";
-                  if (window.confirm(message)) deleteCategory(category.id);
-                }}
-              />
-            </Panel>
           </div>
         </div>
       ) : null}
-      {tab === "atualizar" ? (
+
+      {section === "investments" && investmentTab === "update" ? (
         <div className="two-column">
           <div className="dashboard-wide">
-            <Panel title="Atualização rápida por print" action={<Pill color="#38bdf8">totais por categoria</Pill>}>
-              <InvestmentScreenshotUpdater assets={data.investments} onSaveCategories={updateInvestmentCategorySummaries} />
+            <Panel title="Atualizar outros investimentos por print" action={<Pill color="#38bdf8">CDBs, renda fixa e fundos</Pill>}>
+              <InvestmentScreenshotUpdater assets={nonFiiInvestments} onSaveCategories={updateInvestmentCategorySummaries} />
             </Panel>
           </div>
-          <Panel title="Totais atuais por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
+          <Panel title="Conferência dos valores acumulados" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
             <InvestmentCategoryOverview assets={portfolioAssets} />
           </Panel>
-          <Panel title="Atualização por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
+          <Panel title="Ajuste manual por categoria" action={<Pill>{portfolioAssets.length} categoria(s)</Pill>}>
             {portfolioAssets.length
               ? <InvestmentCategoryQuickUpdate assets={portfolioAssets} onSaveCategory={(summary) => updateInvestmentCategorySummaries([summary])} />
               : <EmptyState title="Nenhuma categoria consolidada" text="Envie um print para iniciar a visão geral acumulada." />}
           </Panel>
-          <Panel title="Conferência dos valores acumulados">
-            <div className="stack-list">
-              {allocation.map((item) => (
-                <div className="list-row" key={item.name}>
-                  <span>{item.name}</span>
-                  <strong>{formatCurrency(item.value)}</strong>
-                </div>
-              ))}
-            </div>
-          </Panel>
         </div>
       ) : null}
-      {tab === "detalhados" ? (
+
+      {section === "investments" && investmentTab === "details" ? (
         <div className="two-column">
-          <Panel title="Investimentos detalhados" action={<Pill>{detailedAssets.length} aplicação(ões)</Pill>}>
+          <Panel title="Aplicações detalhadas" action={<Pill>{detailedAssets.length} aplicação(ões)</Pill>}>
             <div className="inline-alert">Estes cadastros servem para acompanhar vencimentos e renovações. Seus valores não são somados novamente ao patrimônio.</div>
             <InvestmentTable assets={detailedAssets} onEdit={setEditing} onDelete={deleteInvestment} />
           </Panel>
@@ -1049,12 +1111,41 @@ function InvestmentsPage() {
           </Panel>
         </div>
       ) : null}
-      {tab === "fiis" ? (
+
+      {section === "investments" && investmentTab === "categories" ? (
+        <Panel
+          title="Categorias dos outros investimentos"
+          action={<button className="primary-button" type="button" onClick={() => setCategoryEditing(createEmptyCategory("investment"))}><Plus size={17} />Nova categoria</button>}
+        >
+          <div className="inline-alert">FIIs não aparecem aqui: eles são organizados separadamente por ticker.</div>
+          <CategoryAdminList
+            categories={investmentCategories}
+            onEdit={setCategoryEditing}
+            onDelete={(category) => {
+              const inUse = data.investments.some((asset) => !isFiiInvestment(asset) && sameCategory(asset.category, category.name));
+              const message = inUse ? "Categoria em uso. Os investimentos serão movidos para Sem categoria, preservando os totais. Continuar?" : "Excluir esta categoria?";
+              if (window.confirm(message)) deleteCategory(category.id);
+            }}
+          />
+        </Panel>
+      ) : null}
+
+      {section === "fiis" && fiiTab === "portfolio" ? (
         <div className="two-column">
-          <Panel title="FIIs detalhados" action={<Pill>{fiiAssets.length} FII(s)</Pill>}>
-            {fiiAssets.length ? <FiiQuickUpdate assets={fiiAssets} onUpdate={updateInvestment} /> : <EmptyState title="Nenhum FII cadastrado" text="Cadastre FIIs para acompanhar cotas, preço médio, cotação e proventos." />}
+          <div className="dashboard-wide">
+            <Panel title="Posições acumuladas por FII" action={<Pill color="#a78bfa">{fiiAssets.length} posição(ões)</Pill>}>
+              <InvestmentFiiOverview assets={fiiAssets} dividends={data.dividends} />
+            </Panel>
+          </div>
+          <Panel title="Como o total é formado">
+            <div className="stack-list compact-summary-list">
+              <div className="list-row"><span>Valor aplicado</span><strong>{formatCurrency(fiiInvestedValue)}</strong></div>
+              <div className="list-row"><span>Valor atual das cotas</span><strong>{formatCurrency(fiiCurrentValue)}</strong></div>
+              <div className="list-row"><span>Proventos recebidos</span><strong className="amount-positive">+{formatCurrency(fiiDividends)}</strong></div>
+              <div className="list-row"><span>Retorno total</span><strong className={fiiResult >= 0 ? "amount-positive" : "amount-negative"}>{fiiResult >= 0 ? "+" : ""}{formatCurrency(fiiResult)}</strong></div>
+            </div>
           </Panel>
-          <Panel title="Proventos por mês" mobileDefaultCollapsed>
+          <Panel title="Proventos recentes" mobileDefaultCollapsed>
             <ChartBox>
               <ResponsiveContainer>
                 <BarChart data={getDividendsByMonth(data.dividends)} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
@@ -1067,10 +1158,59 @@ function InvestmentsPage() {
               </ResponsiveContainer>
             </ChartBox>
           </Panel>
+          <div className="dashboard-wide">
+            <Panel title="Gerenciar posições de FIIs" mobileDefaultCollapsed action={<Pill>{fiiAssets.length} cadastro(s)</Pill>}>
+              <InvestmentTable assets={fiiAssets} onEdit={(asset) => setEditing({ ...asset, assetType: "fii", category: FII_CATEGORY_NAME })} onDelete={deleteInvestment} />
+            </Panel>
+          </div>
         </div>
       ) : null}
-      <Modal title={editing && editing.id !== "new" ? "Editar investimento" : "Adicionar Investimento"} open={Boolean(editing)} onClose={() => setEditing(null)}>
-        {editing ? <InvestmentForm asset={editing} categories={data.categories} onSave={save} /> : null}
+
+      {section === "fiis" && fiiTab === "update" ? (
+        <div className="two-column">
+          <div className="dashboard-wide">
+            <Panel title="Atualizar FIIs por print" action={<Pill color="#a78bfa">ticker, cotas e preços</Pill>}>
+              <FiiScreenshotUpdater assets={fiiAssets} onUpdate={updateInvestment} />
+            </Panel>
+          </div>
+          <Panel title="Conferência da carteira" action={<Pill>{fiiAssets.length} FII(s)</Pill>}>
+            <InvestmentFiiOverview assets={fiiAssets} dividends={data.dividends} />
+          </Panel>
+          <Panel title="Ajuste manual das cotas">
+            {fiiAssets.length ? <FiiQuickUpdate assets={fiiAssets} onUpdate={updateInvestment} /> : <EmptyState title="Nenhum FII cadastrado" text="Cadastre um FII antes de atualizar a carteira por print." />}
+          </Panel>
+        </div>
+      ) : null}
+
+      {section === "fiis" && fiiTab === "income" ? (
+        <div className="two-column">
+          <Panel title="Proventos por mês">
+            <ChartBox>
+              <ResponsiveContainer>
+                <BarChart data={getDividendsByMonth(fiiIncomeRows)} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis tickFormatter={(value) => `R$${Number(value)}`} />
+                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                  <Bar dataKey="value" fill="#a78bfa" name="Proventos" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartBox>
+          </Panel>
+          <Panel title="Recebimentos vinculados" action={<Pill>{fiiIncomeRows.length} lançamento(s)</Pill>}>
+            {fiiIncomeRows.length ? (
+              <div className="stack-list">
+                {fiiIncomeRows.map((income) => {
+                  const asset = fiiAssets.find((item) => item.id === income.assetId);
+                  return <div className="list-row" key={income.id}><div><strong>{normalizeTicker(asset?.ticker || "") || asset?.name || "FII"}</strong><span>{income.description} · {formatDate(income.date)}</span></div><strong className="amount-positive">+{formatCurrency(income.amount)}</strong></div>;
+                })}
+              </div>
+            ) : <EmptyState title="Nenhum provento vinculado" text="Importe o extrato bancário em Transações e vincule as receitas aos respectivos FIIs." />}
+          </Panel>
+        </div>
+      ) : null}
+      <Modal title={editing && editing.id !== "new" ? (section === "fiis" ? "Editar FII" : "Editar investimento") : (section === "fiis" ? "Adicionar FII" : "Adicionar investimento")} open={Boolean(editing)} onClose={() => setEditing(null)}>
+        {editing ? <InvestmentForm asset={editing} categories={data.categories} mode={section} onSave={save} /> : null}
       </Modal>
       <Modal title={categoryEditing?.id === "new" ? "Nova categoria de investimento" : "Editar categoria de investimento"} open={Boolean(categoryEditing)} onClose={() => setCategoryEditing(null)}>
         {categoryEditing ? <CategoryForm key={categoryEditing.id} category={categoryEditing} onSave={saveInvestmentCategory} lockType="investment" /> : null}
@@ -1152,8 +1292,8 @@ function GuruPage() {
               </ResponsiveContainer>
             </ChartBox>
           </Panel>
-          <Panel title="Investimentos">
-            <PieChartBlock data={getInvestmentAllocation(data.investments, "category")} />
+          <Panel title="Outros investimentos">
+            <PieChartBlock data={getInvestmentAllocation(getNonFiiInvestments(data.investments), "category")} />
           </Panel>
         </div>
       ) : null}
@@ -1217,6 +1357,7 @@ function ReportsPage() {
   const cashflow = getMonthlyCashflow(data.transactions, 12);
   const categories = groupExpensesByCategory(data.transactions, data.categories);
   const dividends = getDividendsByMonth(data.dividends);
+  const nonFiiInvestments = getNonFiiInvestments(data.investments);
 
   return (
     <Page title="Relatórios visuais" action={<button className="secondary-button" type="button" onClick={() => window.print()}><Download size={17} />Preparar PDF</button>}>
@@ -1236,7 +1377,7 @@ function ReportsPage() {
           </ChartBox>
         </Panel>
         <Panel title="Relatório por categoria">{categories.length ? <PieChartBlock data={categories.map((item) => ({ name: item.name, value: item.value }))} /> : <EmptyState title="Sem categorias com gasto" text="Cadastre ou importe transações para gerar este relatório." />}</Panel>
-        <Panel title="Relatório de investimentos por categoria">{getPortfolioInvestments(data.investments).length ? <PieChartBlock data={getInvestmentAllocation(data.investments, "category")} /> : <EmptyState title="Sem investimentos" text="Atualize as categorias da carteira para acompanhar o patrimônio." />}</Panel>
+        <Panel title="Outros investimentos por categoria">{getPortfolioInvestments(nonFiiInvestments).length ? <PieChartBlock data={getInvestmentAllocation(nonFiiInvestments, "category")} /> : <EmptyState title="Sem outros investimentos" text="Atualize CDBs, renda fixa e outros ativos para acompanhar o patrimônio." />}</Panel>
         <Panel title="FIIs e dividendos">
           <ChartBox>
             <ResponsiveContainer>
@@ -1707,7 +1848,7 @@ function CategoryAdminList({ categories, onEdit, onDelete }: { categories: Categ
   );
 }
 
-function InvestmentForm({ asset, categories, onSave }: { asset: InvestmentAsset; categories: Category[]; onSave: (asset: InvestmentAsset) => void }) {
+function InvestmentForm({ asset, categories, mode, onSave }: { asset: InvestmentAsset; categories: Category[]; mode: "investments" | "fiis"; onSave: (asset: InvestmentAsset) => void }) {
   const [draft, setDraft] = useState(asset);
   const marketAsset = draft.assetType === "fii" || draft.assetType === "stock" || draft.assetType === "crypto";
   const fixedAsset = draft.assetType === "fixed_income" || draft.assetType === "cdb" || draft.assetType === "lci_lca" || draft.assetType === "treasury";
@@ -1718,7 +1859,7 @@ function InvestmentForm({ asset, categories, onSave }: { asset: InvestmentAsset;
   const calculatedCurrent = quantity * Math.max(0, Number(draft.currentPrice));
   const investedValue = Math.max(0, Number(draft.investedValue) || calculatedInvested);
   const currentValue = Math.max(0, Number(draft.currentValue) || calculatedCurrent || investedValue);
-  const investmentCategories = categories.filter((category) => category.type === "investment" || category.type === "both");
+  const investmentCategories = categories.filter((category) => !isFiiCategoryName(category.name) && (category.type === "investment" || category.type === "both"));
   const categoryOptions = investmentCategories.length ? investmentCategories : categories;
 
   function updateType(assetType: AssetType) {
@@ -1779,7 +1920,7 @@ function InvestmentForm({ asset, categories, onSave }: { asset: InvestmentAsset;
       dividendYield: keepsIncome ? Number(draft.dividendYield) || undefined : undefined,
       maturityDate: fixedAsset || draft.assetType === "other" ? draft.maturityDate || undefined : undefined,
       broker: draft.broker?.trim(),
-      category: draft.category?.trim() || undefined,
+      category: draft.assetType === "fii" ? FII_CATEGORY_NAME : draft.category?.trim() || undefined,
       rateType: fixedAsset ? draft.rateType : undefined,
       rateValue: fixedAsset ? Number(draft.rateValue) || undefined : undefined,
       liquidity: fixedAsset ? draft.liquidity?.trim() || undefined : undefined,
@@ -1793,12 +1934,12 @@ function InvestmentForm({ asset, categories, onSave }: { asset: InvestmentAsset;
 
   return (
     <form className="form-grid smart-form investment-form" onSubmit={submit}>
-      <div className="inline-alert span-2">Cadastro detalhado para acompanhar vencimento e renovação. Os totais do patrimônio são atualizados separadamente por categoria.</div>
+      <div className="inline-alert span-2">{mode === "fiis" ? "Cadastro exclusivo de FII. Depois, os prints atualizam cotas e valores sem misturar esta posição às demais categorias." : "Cadastro detalhado para acompanhar vencimento e renovação. Os totais do patrimônio são atualizados separadamente por categoria."}</div>
       <div className="form-section span-2">
         <div className="form-section-title"><strong>Tipo de investimento</strong><span>Cada opção pede somente as informações relevantes.</span></div>
         <label className="span-2">Tipo
-          <select data-testid="investment-type" value={draft.assetType} onChange={(event) => updateType(event.target.value as AssetType)}>
-            <option value="fixed_income">Renda Fixa</option><option value="fund">Fundo de Investimento</option><option value="fii">Fundo Imobiliário (FII)</option><option value="stock">Ações</option><option value="treasury">Tesouro Direto</option><option value="cdb">CDB</option><option value="lci_lca">LCI / LCA</option><option value="crypto">Criptomoedas</option><option value="other">Outro</option>
+          <select data-testid="investment-type" value={draft.assetType} disabled={mode === "fiis"} onChange={(event) => updateType(event.target.value as AssetType)}>
+            {mode === "fiis" ? <option value="fii">Fundo Imobiliário (FII)</option> : <><option value="fixed_income">Renda Fixa</option><option value="fund">Fundo de Investimento</option><option value="stock">Ações</option><option value="treasury">Tesouro Direto</option><option value="cdb">CDB</option><option value="lci_lca">LCI / LCA</option><option value="crypto">Criptomoedas</option><option value="other">Outro</option></>}
           </select>
         </label>
       </div>
@@ -1861,12 +2002,14 @@ function InvestmentForm({ asset, categories, onSave }: { asset: InvestmentAsset;
         </>
       ) : null}
 
-      <label className="span-2">Categoria
-        <select value={draft.category ?? ""} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
-          <option value="">Sem categoria</option>
-          {categoryOptions.filter((category) => normalizeCategoryName(category.name) !== "sem categoria").map((category) => <option value={category.name} key={category.id}>{category.name}</option>)}
-        </select>
-      </label>
+      {draft.assetType === "fii" ? <div className="inline-alert span-2">Categoria exclusiva: <strong>{FII_CATEGORY_NAME}</strong>. A organização desta carteira é feita por ticker.</div> : (
+        <label className="span-2">Categoria
+          <select value={draft.category ?? ""} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
+            <option value="">Sem categoria</option>
+            {categoryOptions.filter((category) => normalizeCategoryName(category.name) !== "sem categoria").map((category) => <option value={category.name} key={category.id}>{category.name}</option>)}
+          </select>
+        </label>
+      )}
       <div className="span-2 investment-total-preview"><span>Investido<strong>{formatCurrency(investedValue)}</strong></span><span>Valor atual<strong>{formatCurrency(currentValue)}</strong></span><span>Resultado<strong className={currentValue >= investedValue ? "amount-positive" : "amount-negative"}>{formatCurrency(currentValue - investedValue)}</strong></span></div>
       <label className="span-2">Observações<textarea value={draft.notes ?? ""} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Informações úteis sobre o ativo" /></label>
       <button className="primary-button span-2 form-submit" type="submit"><CheckCircle2 size={18} />Salvar {draft.assetType === "fii" ? "FII" : "investimento"}</button>
@@ -2113,7 +2256,11 @@ function InvestmentScreenshotUpdater({ assets, onSaveCategories }: { assets: Inv
     setPreview([]);
     setConfirmed("");
     try {
-      const result = await analyzeInvestmentScreenshots(files, assets);
+      const rawResult = await analyzeInvestmentScreenshots(files, assets, "other_investments");
+      const result = {
+        ...rawResult,
+        updates: rawResult.updates.filter((update) => update.assetType !== "fii" && !isFiiCategoryName(update.category || update.name || undefined)),
+      };
       const nextPreview = buildInvestmentUpdatePreview(result, assets);
       const unmatchedUpdates = getUnmatchedInvestmentUpdates(result, assets);
       setAnalysis({
@@ -2133,8 +2280,8 @@ function InvestmentScreenshotUpdater({ assets, onSaveCategories }: { assets: Inv
     <div className="screenshot-updater">
       <label className="upload-zone compact-upload">
         <Upload size={22} />
-        <strong>Enviar print com totais por categoria</strong>
-        <span>Envie telas com Limite Garantido, Renda Fixa, FIIs, Fundos e outras categorias já consolidadas.</span>
+        <strong>Enviar print dos outros investimentos</strong>
+        <span>Use telas de CDBs, renda fixa, fundos e outros ativos. Prints de FIIs têm uma área própria.</span>
         <input type="file" accept="image/*" multiple onChange={handleFiles} />
       </label>
       {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Lendo print com OCR local...</div> : null}
@@ -2302,20 +2449,170 @@ function finiteOr(value: number | null | undefined, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-function FiiQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
-  const [drafts, setDrafts] = useState<Record<string, number>>(() => Object.fromEntries(assets.map((asset) => [asset.id, asset.currentPrice])));
+interface FiiScreenshotPreview {
+  asset: InvestmentAsset;
+  quantity: number;
+  averagePrice: number;
+  currentPrice: number;
+  currentValue: number;
+  investedValue: number;
+  confidence: number;
+}
+
+function FiiScreenshotUpdater({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
+  const [analysis, setAnalysis] = useState<InvestmentImageAnalysis | null>(null);
+  const [preview, setPreview] = useState<FiiScreenshotPreview[]>([]);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmed, setConfirmed] = useState("");
+
+  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+    setLoading(true);
+    setError("");
+    setConfirmed("");
+    setAnalysis(null);
+    setPreview([]);
+    try {
+      const result = await analyzeInvestmentScreenshots(files, assets, "fiis");
+      const nextPreview = buildFiiScreenshotPreview(result, assets);
+      const unmatched = result.updates
+        .filter((update) => update.assetType === "fii" && !findInvestmentUpdateAsset(update, assets))
+        .map((update) => normalizeTicker(update.ticker) || update.name || "FII não identificado");
+      setAnalysis({ ...result, unmatched: [...result.unmatched, ...unmatched] });
+      setPreview(nextPreview);
+      setSelected(Object.fromEntries(nextPreview.map((item) => [item.asset.id, true])));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível ler os FIIs deste print agora.");
+    } finally {
+      setLoading(false);
+      event.target.value = "";
+    }
+  }
+
+  const selectedItems = preview.filter((item) => selected[item.asset.id]);
+
+  if (!assets.length) {
+    return <EmptyState title="Cadastre seus FIIs primeiro" text="O print atualiza posições existentes com segurança. Cadastre o ticker uma vez e depois use a leitura automática." />;
+  }
+
   return (
-    <div className="stack-list">
-      <label className="upload-zone small">
-        <Upload size={24} />
-        <strong>Atualização manual rápida</strong>
-        <span>Para print, use o painel de importação na tela de Investimentos.</span>
+    <div className="screenshot-updater fii-screenshot-updater">
+      <div className="import-step-strip" aria-label="Etapas da atualização">
+        <span className={analysis ? "done" : "active"}><strong>1</strong> Enviar</span>
+        <span className={analysis ? "active" : ""}><strong>2</strong> Conferir</span>
+        <span><strong>3</strong> Confirmar</span>
+      </div>
+      <label className="upload-zone compact-upload fii-upload-zone">
+        <Building2 size={24} />
+        <strong>Selecionar print da carteira de FIIs</strong>
+        <span>Deixe visíveis ticker, quantidade, preço atual, valor total e rentabilidade.</span>
+        <input type="file" accept="image/*" multiple onChange={handleFiles} />
       </label>
+      {loading ? <div className="inline-alert"><Loader2 className="spin" size={16} /> Lendo posições e cotas no aparelho...</div> : null}
+      {error ? <div className="inline-alert warning-alert">{error}</div> : null}
+      {confirmed ? <div className="inline-alert">{confirmed}</div> : null}
+      {analysis ? (
+        <div className="fii-scan-review">
+          <div className="scan-review-header">
+            <div><strong>Conferência da leitura</strong><span>{analysis.summary} Nada será alterado antes da confirmação.</span></div>
+            <Pill color="#a78bfa">{selectedItems.length} selecionado(s)</Pill>
+          </div>
+          {preview.length ? (
+            <div className="fii-scan-list">
+              {preview.map((item) => {
+                const delta = item.currentValue - item.asset.currentValue;
+                return (
+                  <article className={`fii-scan-row ${selected[item.asset.id] ? "selected" : ""}`} key={item.asset.id}>
+                    <div className="fii-scan-title">
+                      <label className="check-row">
+                        <input type="checkbox" checked={Boolean(selected[item.asset.id])} onChange={(event) => setSelected((current) => ({ ...current, [item.asset.id]: event.target.checked }))} />
+                        <span><strong>{normalizeTicker(item.asset.ticker) || item.asset.name}</strong><small>{item.asset.name}</small></span>
+                      </label>
+                      <Pill color={item.confidence >= 0.8 ? "#5eead4" : "#fbbf24"}>{Math.round(item.confidence * 100)}% confiança</Pill>
+                    </div>
+                    <div className="fii-scan-metrics">
+                      <div><span>Cotas</span><small>{item.asset.quantity} →</small><strong>{item.quantity}</strong></div>
+                      <div><span>Cota atual</span><small>{formatCurrency(item.asset.currentPrice)} →</small><strong>{formatCurrency(item.currentPrice)}</strong></div>
+                      <div><span>Preço médio</span><small>{formatCurrency(item.asset.averagePrice)} →</small><strong>{formatCurrency(item.averagePrice)}</strong></div>
+                      <div><span>Posição</span><small>{formatCurrency(item.asset.currentValue)} →</small><strong>{formatCurrency(item.currentValue)}</strong></div>
+                    </div>
+                    <div className="fii-scan-delta">
+                      <span>Variação identificada</span>
+                      <strong className={delta >= 0 ? "amount-positive" : "amount-negative"}>{delta >= 0 ? "+" : ""}{formatCurrency(delta)}</strong>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : <span className="muted-inline">Nenhuma posição cadastrada pôde ser vinculada à leitura.</span>}
+          {analysis.unmatched.length ? <div className="inline-alert warning-alert">Não vinculados: {[...new Set(analysis.unmatched)].join(", ")}. Confira se esses tickers já estão cadastrados.</div> : null}
+          {selectedItems.length ? (
+            <button
+              className="primary-button confirm-scan-button"
+              type="button"
+              onClick={() => {
+                selectedItems.forEach((item) => onUpdate({
+                  ...item.asset,
+                  quantity: item.quantity,
+                  averagePrice: item.averagePrice,
+                  currentPrice: item.currentPrice,
+                  investedValue: item.investedValue,
+                  currentValue: item.currentValue,
+                }));
+                setConfirmed(`${selectedItems.length} posição(ões) de FIIs atualizada(s). O total da categoria foi recalculado automaticamente.`);
+                setPreview([]);
+                setSelected({});
+              }}
+            >
+              <CheckCircle2 size={17} />Confirmar posições selecionadas
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function buildFiiScreenshotPreview(result: InvestmentImageAnalysis, assets: InvestmentAsset[]) {
+  const byAsset = new Map<string, FiiScreenshotPreview>();
+  result.updates.forEach((update) => {
+    if (update.assetType !== "fii" || update.confidence < 0.55) return;
+    const asset = findInvestmentUpdateAsset(update, assets);
+    if (!asset || !isFiiInvestment(asset)) return;
+    const quantity = finitePositiveOr(update.quantity, asset.quantity);
+    const currentValue = finitePositiveOr(update.currentValue, quantity * finitePositiveOr(update.currentPrice, asset.currentPrice));
+    const currentPrice = finitePositiveOr(update.currentPrice, quantity > 0 ? currentValue / quantity : asset.currentPrice);
+    const averagePrice = finitePositiveOr(update.averagePrice, asset.averagePrice);
+    byAsset.set(asset.id, {
+      asset,
+      quantity,
+      averagePrice,
+      currentPrice,
+      currentValue,
+      investedValue: quantity * averagePrice,
+      confidence: update.confidence,
+    });
+  });
+  return [...byAsset.values()].sort((a, b) => normalizeTicker(a.asset.ticker).localeCompare(normalizeTicker(b.asset.ticker), "pt-BR"));
+}
+
+function finitePositiveOr(value: number | null | undefined, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : Math.max(0, fallback);
+}
+
+function FiiQuickUpdate({ assets, onUpdate }: { assets: InvestmentAsset[]; onUpdate: (asset: InvestmentAsset) => void }) {
+  const [drafts, setDrafts] = useState<Record<string, number>>({});
+  return (
+    <div className="stack-list fii-manual-update">
+      <div className="inline-alert">Altere somente a cota desejada. A posição e o total de FIIs serão recalculados ao salvar.</div>
       {assets.map((asset) => (
-        <div className="list-row" key={asset.id}>
-          <div><strong>{asset.ticker}</strong><span>{asset.quantity} cotas · PM {formatCurrency(asset.averagePrice)}</span></div>
-          <input type="number" step="0.01" value={drafts[asset.id] ?? asset.currentPrice} onChange={(event) => setDrafts({ ...drafts, [asset.id]: Number(event.target.value) })} />
-          <button className="secondary-button" type="button" onClick={() => onUpdate({ ...asset, currentPrice: drafts[asset.id] ?? asset.currentPrice, currentValue: asset.quantity * (drafts[asset.id] ?? asset.currentPrice) })}>Salvar</button>
+        <div className="list-row fii-manual-row" key={asset.id}>
+          <div><strong>{normalizeTicker(asset.ticker)}</strong><span>{asset.quantity} cotas · posição {formatCurrency(asset.currentValue)}</span></div>
+          <label className="compact-value-field"><span>Nova cota</span><input type="number" min="0" inputMode="decimal" step="0.01" value={drafts[asset.id] ?? asset.currentPrice} onChange={(event) => setDrafts({ ...drafts, [asset.id]: Number(event.target.value) })} /></label>
+          <button className="secondary-button" type="button" onClick={() => onUpdate({ ...asset, currentPrice: drafts[asset.id] ?? asset.currentPrice, currentValue: asset.quantity * (drafts[asset.id] ?? asset.currentPrice) })}><CheckCircle2 size={16} />Salvar</button>
         </div>
       ))}
     </div>

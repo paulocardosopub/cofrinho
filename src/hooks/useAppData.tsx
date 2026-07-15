@@ -10,7 +10,7 @@ import type {
   UserData,
   UserSettings,
 } from "../types";
-import { recalculateAsset } from "../utils/finance";
+import { FII_CATEGORY_NAME, isFiiInvestment, recalculateAsset } from "../utils/finance";
 import {
   getRemoteSessionUser,
   isSupabaseConfigured,
@@ -90,6 +90,41 @@ function normalizeInvestmentCategory(value?: string) {
     .replace(/\p{Diacritic}/gu, "")
     .trim()
     .toLowerCase();
+}
+
+function synchronizeFiiSummary(investments: InvestmentAsset[], timestamp: string) {
+  const details = investments.filter((asset) => asset.trackingMode !== "category_summary" && isFiiInvestment(asset));
+  const summaries = investments.filter((asset) => asset.trackingMode === "category_summary" && isFiiInvestment(asset));
+  if (!details.length && !summaries.length) return investments;
+
+  const investedValue = details.reduce((total, asset) => total + asset.investedValue, 0);
+  const currentValue = details.reduce((total, asset) => total + asset.currentValue, 0);
+  const existing = summaries[0];
+  const summary: InvestmentAsset = recalculateAsset({
+    ...(existing ?? {
+      id: makeId("inv-summary"),
+      ticker: "",
+      name: `Resumo de ${FII_CATEGORY_NAME}`,
+      quantity: 1,
+      dividends: 0,
+      buyDate: timestamp.slice(0, 10),
+      broker: "Consolidado por categoria",
+      createdAt: timestamp,
+    }),
+    assetType: "fii",
+    category: FII_CATEGORY_NAME,
+    trackingMode: "category_summary",
+    averagePrice: investedValue,
+    currentPrice: currentValue,
+    investedValue,
+    currentValue,
+    updatedAt: timestamp,
+  });
+
+  return [
+    ...investments.filter((asset) => !(asset.trackingMode === "category_summary" && isFiiInvestment(asset))),
+    summary,
+  ];
 }
 
 function syncLinkedFiiDividend(dividends: UserData["dividends"], transaction: Transaction) {
@@ -384,26 +419,35 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       },
       addInvestment(asset) {
         const timestamp = new Date().toISOString();
-        withData((current) => ({
-          ...current,
-          investments: [
-            recalculateAsset({
-              ...asset,
-              id: makeId("inv"),
-              createdAt: timestamp,
-              updatedAt: timestamp,
-            }),
-            ...current.investments,
-          ],
-        }));
+        withData((current) => {
+          const created = recalculateAsset({
+            ...asset,
+            id: makeId("inv"),
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          });
+          const investments = [created, ...current.investments];
+          return {
+            ...current,
+            investments: created.trackingMode !== "category_summary" && isFiiInvestment(created)
+              ? synchronizeFiiSummary(investments, timestamp)
+              : investments,
+          };
+        });
       },
       updateInvestment(asset) {
-        withData((current) => ({
-          ...current,
-          investments: current.investments.map((item) =>
+        const timestamp = new Date().toISOString();
+        withData((current) => {
+          const investments = current.investments.map((item) =>
             item.id === asset.id ? recalculateAsset({ ...asset, updatedAt: new Date().toISOString() }) : item,
-          ),
-        }));
+          );
+          return {
+            ...current,
+            investments: asset.trackingMode !== "category_summary" && isFiiInvestment(asset)
+              ? synchronizeFiiSummary(investments, timestamp)
+              : investments,
+          };
+        });
       },
       updateInvestmentCategorySummaries(summaries) {
         const timestamp = new Date().toISOString();
@@ -459,15 +503,22 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         }, current));
       },
       deleteInvestment(id) {
-        withData((current) => ({
-          ...current,
-          investments: current.investments.filter((item) => item.id !== id),
-          dividends: current.dividends.filter((item) => item.assetId !== id),
-          operations: current.operations.filter((item) => item.assetId !== id),
-          transactions: current.transactions.map((item) => item.investmentAssetId === id
-            ? { ...item, investmentAssetId: undefined, investmentIncomeType: undefined }
-            : item),
-        }));
+        const timestamp = new Date().toISOString();
+        withData((current) => {
+          const removed = current.investments.find((item) => item.id === id);
+          const investments = current.investments.filter((item) => item.id !== id);
+          return {
+            ...current,
+            investments: removed?.trackingMode !== "category_summary" && removed && isFiiInvestment(removed)
+              ? synchronizeFiiSummary(investments, timestamp)
+              : investments,
+            dividends: current.dividends.filter((item) => item.assetId !== id),
+            operations: current.operations.filter((item) => item.assetId !== id),
+            transactions: current.transactions.map((item) => item.investmentAssetId === id
+              ? { ...item, investmentAssetId: undefined, investmentIncomeType: undefined }
+              : item),
+          };
+        });
       },
       addGoal(goal) {
         withData((current) => ({

@@ -166,6 +166,28 @@ export function getDetailedInvestments(investments: InvestmentAsset[]) {
   return investments.filter((asset) => asset.trackingMode !== "category_summary");
 }
 
+export const FII_CATEGORY_NAME = "Fundos Imobiliários (FIIs)";
+
+export function isFiiCategoryName(category?: string) {
+  const normalized = normalizeInvestmentCategory(category);
+  return normalized === "fii"
+    || normalized === "fiis"
+    || normalized.includes("fundo imobiliario")
+    || normalized.includes("fundos imobiliarios");
+}
+
+export function isFiiInvestment(asset: InvestmentAsset) {
+  return asset.assetType === "fii" || isFiiCategoryName(asset.category);
+}
+
+export function getFiiInvestments(investments: InvestmentAsset[]) {
+  return investments.filter(isFiiInvestment);
+}
+
+export function getNonFiiInvestments(investments: InvestmentAsset[]) {
+  return investments.filter((asset) => !isFiiInvestment(asset));
+}
+
 function normalizeInvestmentCategory(category?: string) {
   return (category || "Sem categoria")
     .normalize("NFD")

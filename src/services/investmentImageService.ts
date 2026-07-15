@@ -30,10 +30,16 @@ interface FilePayload {
   dataUrl: string;
 }
 
-export async function analyzeInvestmentScreenshots(files: File[], assets: InvestmentAsset[]): Promise<InvestmentImageAnalysis> {
+export type InvestmentScreenshotPurpose = "other_investments" | "fiis";
+
+export async function analyzeInvestmentScreenshots(
+  files: File[],
+  assets: InvestmentAsset[],
+  purpose: InvestmentScreenshotPurpose = "other_investments",
+): Promise<InvestmentImageAnalysis> {
   let localError: unknown;
   try {
-    const localAnalysis = await analyzeWithLocalOcr(files, assets);
+    const localAnalysis = await analyzeWithLocalOcr(files, assets, purpose);
     if (localAnalysis.updates.length) return localAnalysis;
   } catch (error) {
     localError = error;
@@ -43,7 +49,9 @@ export async function analyzeInvestmentScreenshots(files: File[], assets: Invest
     if (localError) {
       throw new Error("Não consegui carregar o OCR local agora. Verifique a conexão e tente novamente.");
     }
-    throw new Error("Não consegui identificar investimentos nesses prints. Recorte a área dos cartões ou envie prints do C6 com Saldo bruto e Rendimento bruto visíveis.");
+    throw new Error(purpose === "fiis"
+      ? "Não consegui identificar FIIs nesses prints. Envie a tela com ticker, quantidade, preço atual e valor total visíveis."
+      : "Não consegui identificar investimentos nesses prints. Recorte a área dos cartões ou envie prints com saldo e rendimento visíveis.");
   }
 
   if (!isSupabaseConfigured || !supabaseUrl || !supabaseAnonKey) {
@@ -60,6 +68,7 @@ export async function analyzeInvestmentScreenshots(files: File[], assets: Invest
     },
     body: JSON.stringify({
       files: payloadFiles,
+      purpose,
       holdings: assets.map((asset) => ({
         ticker: normalizeTicker(asset.ticker),
         name: asset.name,
@@ -81,7 +90,7 @@ export async function analyzeInvestmentScreenshots(files: File[], assets: Invest
   return data;
 }
 
-async function analyzeWithLocalOcr(files: File[], assets: InvestmentAsset[]): Promise<InvestmentImageAnalysis> {
+async function analyzeWithLocalOcr(files: File[], assets: InvestmentAsset[], purpose: InvestmentScreenshotPurpose): Promise<InvestmentImageAnalysis> {
   const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("por");
   try {
@@ -91,8 +100,16 @@ async function analyzeWithLocalOcr(files: File[], assets: InvestmentAsset[]): Pr
       texts.push(data.text);
     }
 
-    const ocrText = texts.join("\n");
-    const categoryUpdates: InvestmentImageUpdate[] = parseInvestmentCategoryText(ocrText, assets).map((update) => ({
+    return parseInvestmentOcrText(texts.join("\n"), assets, purpose);
+  } finally {
+    await worker.terminate();
+  }
+}
+
+export function parseInvestmentOcrText(ocrText: string, assets: InvestmentAsset[], purpose: InvestmentScreenshotPurpose): InvestmentImageAnalysis {
+  const categoryUpdates: InvestmentImageUpdate[] = parseInvestmentCategoryText(ocrText, assets)
+      .filter((update) => update.assetType !== "fii")
+      .map((update) => ({
       scope: "category_summary",
       category: update.category,
       ticker: "",
@@ -107,23 +124,65 @@ async function analyzeWithLocalOcr(files: File[], assets: InvestmentAsset[]): Pr
       confidence: update.confidence,
       sourceText: update.sourceText,
     }));
-    const detailedFallback = [
-      ...parseCdbCardsFromText(ocrText),
-      ...parseFiiCardsFromText(ocrText, assets),
-    ];
-    const updates = dedupeInvestmentUpdates(categoryUpdates.length ? categoryUpdates : detailedFallback);
-    return {
-      summary: updates.length
-        ? categoryUpdates.length
-          ? `${updates.length} categoria(s) consolidada(s) identificada(s) por OCR local.`
-          : `${updates.length} item(ns) identificado(s) e agrupado(s) por categoria.`
-        : "Nenhuma categoria de investimento identificada por OCR local.",
-      updates,
-      unmatched: [],
-    };
-  } finally {
-    await worker.terminate();
-  }
+  const detailedFallback = aggregateCdbCategoryUpdates(parseCdbCardsFromText(ocrText));
+  const fiiUpdates = parseFiiCardsFromText(ocrText, assets);
+  const mergedOtherUpdates = new Map(categoryUpdates.map((update) => [normalizeText(update.category || update.name || ""), update]));
+  detailedFallback.forEach((update) => mergedOtherUpdates.set(normalizeText(update.category || update.name || ""), update));
+  const updates = purpose === "fiis"
+    ? dedupeInvestmentUpdates(fiiUpdates)
+    : dedupeInvestmentUpdates([...mergedOtherUpdates.values()]);
+  return {
+    summary: updates.length
+      ? purpose === "fiis"
+        ? `${updates.length} FII(s) identificado(s) no print.`
+        : categoryUpdates.length
+          ? `${updates.length} categoria(s) consolidada(s) identificada(s) no print.`
+          : `${updates.length} aplicação(ões) identificada(s) e agrupada(s) por categoria.`
+      : purpose === "fiis" ? "Nenhum FII identificado no print." : "Nenhum investimento identificado no print.",
+    updates,
+    unmatched: [],
+  };
+}
+
+function aggregateCdbCategoryUpdates(updates: InvestmentImageUpdate[]) {
+  const groups = new Map<string, InvestmentImageUpdate>();
+  updates.forEach((update) => {
+    const limitGuaranteed = normalizeText(update.name || "").includes("limite garantido");
+    const category = limitGuaranteed ? "Limite Garantido" : "CDB";
+    const currentValue = finiteOcrValue(update.currentValue);
+    const grossYield = finiteOcrValue(update.dividends);
+    const investedValue = Math.max(0, currentValue - grossYield);
+    const current = groups.get(category);
+    if (current) {
+      current.currentValue = finiteOcrValue(current.currentValue) + currentValue;
+      current.investedValue = finiteOcrValue(current.investedValue) + investedValue;
+      current.averagePrice = current.investedValue;
+      current.currentPrice = current.currentValue;
+      current.confidence = Math.min(current.confidence, update.confidence);
+      current.sourceText = `${current.sourceText} || ${update.sourceText}`;
+      return;
+    }
+    groups.set(category, {
+      scope: "category_summary",
+      category,
+      ticker: "",
+      name: category,
+      assetType: limitGuaranteed ? "fixed_income" : "cdb",
+      quantity: 1,
+      averagePrice: investedValue,
+      currentPrice: currentValue,
+      investedValue,
+      currentValue,
+      dividends: null,
+      confidence: update.confidence,
+      sourceText: update.sourceText,
+    });
+  });
+  return [...groups.values()];
+}
+
+function finiteOcrValue(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function parseCdbCardsFromText(text: string): InvestmentImageUpdate[] {
@@ -164,9 +223,13 @@ function parseFiiCardsFromText(text: string, assets: InvestmentAsset[]): Investm
   for (let index = 0; index < lines.length; index += 1) {
     const headerValue = parseCurrencyFromText(lines[index]);
     const windowLines = lines.slice(index, index + 8);
-    if (!headerValue || !findLineByLabels(windowLines, ["quantidade"]) || !findLineByLabels(windowLines, ["preço atual", "preco atual", "prego atual"])) continue;
+    if (!headerValue || headerValue <= 0 || !findLineByLabels(windowLines, ["quantidade"]) || !findLineByLabels(windowLines, ["preço atual", "preco atual", "prego atual"])) continue;
 
     const rawName = cleanFiiHeaderName(lines[index]);
+    const normalizedHeader = normalizeText(rawName);
+    if (!rawName
+      || normalizeTickerLike(rawName).length < 3
+      || ["quantidade", "preco atual", "prego atual", "rentabilidade", "vender", "comprar"].some((label) => normalizedHeader.includes(label))) continue;
     const currentPrice = findCurrencyByLabels(windowLines, ["preço atual", "preco atual", "prego atual", "cota atual", "cotação", "cotacao"]);
     const currentValue = headerValue;
     const quantity = findNumberByLabels(windowLines, ["quantidade", "qtd", "cotas"]) ?? inferQuantity(currentValue, currentPrice);
